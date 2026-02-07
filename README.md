@@ -1,1 +1,1 @@
-Activity diagram AI modeling tool
+Activity diagram AI modeling tool by Adrian Barnak
