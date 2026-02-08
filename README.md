@@ -1,1 +1,1 @@
-Activity diagram AI modeling tool
+Activity diagram AI powered modeling tool
