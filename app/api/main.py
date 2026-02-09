@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 
 from app.core.config import settings
+from app.api.v1.endpoints import router as v1_router
 
 app = FastAPI(
     title="Activity Diagram AI Modeler",
-    version="0.1.0",
+    version="1.0.0",
     description="API for generating UML Activity diagrams by LLM.",
     docs_url="/api-docs",       # Swagger UI
     redoc_url="/api-redoc",     # ReDoc
@@ -26,3 +27,5 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"message": "ActivityDiagramAIModeler API runs."}
+
+app.include_router(v1_router, prefix="/api/v1")
