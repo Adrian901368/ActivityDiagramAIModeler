@@ -16,7 +16,7 @@ app = FastAPI(
 async def health_check():
     """
     Simple health-check endpoint.
-    if runs, vráti OK.
+    if runs, return OK.
     """
     return {
         "status": "ok",

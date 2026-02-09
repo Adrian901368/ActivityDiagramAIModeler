@@ -1,7 +1,10 @@
 from fastapi import APIRouter, HTTPException
+
 from app.core.schemas import ProcessInput, GenerateResponse, ErrorResponse
 from app.core.prompts import build_activity_diagram_system_prompt
 from app.services.llm_service import generate_simple_response
+from app.services.plantuml_validator import validate_plantuml
+from app.core.config import settings
 
 
 router = APIRouter()
@@ -21,50 +24,65 @@ async def generate_activity_diagram(payload: ProcessInput) -> GenerateResponse:
     Takes a structured JSON description of a process (ProcessInput) and
     returns PlantUML code for a UML Activity Diagram based on that input.
     """
-    try:
-        system_prompt = build_activity_diagram_system_prompt()
+    # 1) Build system prompt (rules for PlantUML output)
+    system_prompt = build_activity_diagram_system_prompt()
 
-        # We send the validated JSON representation of the process to the LLM.
-        user_content = {
-            "process_name": payload.process_name,
-            "domain": payload.domain,
-            "actors": payload.actors,
-            "actions": [a.model_dump() for a in payload.actions],
-            "decisions": [d.model_dump() for d in payload.decisions] if payload.decisions else None,
-            "parallel_blocks": (
-                [pb.model_dump() for pb in payload.parallel_blocks]
-                if payload.parallel_blocks
-                else None
+    # 2) Prepare JSON payload for the LLM from validated Pydantic model
+    user_content = {
+        "process_name": payload.process_name,
+        "domain": payload.domain,
+        "actors": payload.actors,
+        "actions": [a.model_dump() for a in payload.actions],
+        "decisions": [d.model_dump() for d in payload.decisions] if payload.decisions else None,
+        "parallel_blocks": (
+            [pb.model_dump() for pb in payload.parallel_blocks]
+            if payload.parallel_blocks
+            else None
+        ),
+    }
+
+    # 3) Build OpenAI‑compatible messages
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "You will receive a JSON object that describes a business process. "
+                "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
+                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                f"{user_content}"
             ),
-        }
+        },
+    ]
 
-        # Call the LLM service – this function should:
-        # - accept system + user messages
-        # - return plain text (PlantUML code) from the model
-        plantuml_code, meta = await generate_simple_response(
-            system_prompt=system_prompt,
-            user_payload=user_content,
-        )
-
-        if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
-            raise HTTPException(
-                status_code=500,
-                detail="LLM did not return valid PlantUML code.",
-            )
-
-        return GenerateResponse(
-            plantuml_code=plantuml_code,
-            process_name=payload.process_name,
-            model_used=meta.get("model", "unknown"),
-            tokens_used=meta.get("tokens_used"),
-        )
-
-    except HTTPException:
-        # necháme FastAPI spracovať HTTPException
-        raise
+    # 4) Call LLM service
+    try:
+        plantuml_code = generate_simple_response(messages)
     except Exception as exc:
-        # fallback na general error
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error during diagram generation: {exc}",
+            detail=f"LLM call failed: {exc}",
         )
+
+    # 5) Basic sanity check – must contain @startuml/@enduml
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(
+            status_code=500,
+            detail="LLM did not return valid PlantUML code.",
+        )
+
+    # 6) Syntax validation via PlantUML server
+    is_valid, error_msg = validate_plantuml(plantuml_code)
+    if not is_valid:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generated PlantUML has syntax errors: {error_msg}",
+        )
+
+    # 7) Successful response
+    return GenerateResponse(
+        plantuml_code=plantuml_code,
+        process_name=payload.process_name,
+        model_used=settings.llm.model,
+        tokens_used=None,  # môžeš doplniť neskôr podľa llm_service
+    )
