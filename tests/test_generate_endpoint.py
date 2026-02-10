@@ -19,6 +19,11 @@ def test_generate_activity_diagram_smoke(monkeypatch):
 
     monkeypatch.setattr(endpoints, "validate_plantuml", fake_validate_plantuml)
 
+    def fake_save_process_version(db, process_name, domain, prompt_dict, plantuml_code, llm_model, tokens_used=None):
+        return None  # nič neukladá, len sa ticho skončí
+
+    monkeypatch.setattr(endpoints, "save_process_version", fake_save_process_version)
+
     payload = {
         "process_name": "Order processing",
         "domain": "E-commerce",
