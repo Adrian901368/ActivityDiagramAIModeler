@@ -1,5 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
+from datetime import datetime
 
 
 class Action(BaseModel):
@@ -129,3 +130,27 @@ class ErrorResponse(BaseModel):
     status: str = Field(default="error")
     error: str
     details: Optional[str] = None
+
+class CatalogVersion(BaseModel):
+    id: int
+    version_number: int
+    created_at: datetime
+    llm_model: str
+    tokens_used: Optional[int] = None
+    status: str
+    plantuml_code: str
+
+
+class CatalogProcessDetail(BaseModel):
+    process_id: int
+    process_name: str
+    domain: Optional[str] = None
+    versions: List[CatalogVersion]
+
+class ProcessInCatalog(BaseModel):
+    id: int
+    name: str
+    domain: str | None = None
+
+    class Config:
+        from_attributes = True

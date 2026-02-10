@@ -1,0 +1,29 @@
+# Python cache a build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+build/
+dist/
+*.egg-info/
+
+# Virtuálne prostredie
+venv/
+.env/
+.venv/
+
+# IDE súbory (PyCharm, VS Code)
+.idea/
+.vscode/
+
+# Logy
+*.log
+
+# Databázy (lokálne, generované)
+*.db
+*.sqlite3
+
+# OS špecifické
+.DS_Store
+Thumbs.db
