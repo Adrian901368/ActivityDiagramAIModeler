@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status, Response
 from sqlalchemy.orm import Session
 
 from app.core.prompts import build_activity_diagram_system_prompt
@@ -17,6 +17,7 @@ from app.core.schemas import (
     ErrorResponse,
     CatalogProcessDetail,
     CatalogVersion,
+    NewVersionInput,
 )
 
 router = APIRouter()
@@ -169,6 +170,7 @@ async def get_process_catalog(
     version_items = [
         CatalogVersion(
             id=v.id,
+            process_id=v.process_id,
             version_number=v.version_number,
             created_at=v.created_at,
             llm_model=v.llm_model,
@@ -185,3 +187,99 @@ async def get_process_catalog(
         domain=process.domain,
         versions=version_items,
     )
+
+@router.post(
+    "/catalog/{process_id}/versions",
+    response_model=CatalogVersion,
+    responses={404: {"model": ErrorResponse}},
+    summary="Create new version for an existing process",
+    tags=["catalog"],
+)
+async def create_process_version(
+    process_id: int,
+    payload: NewVersionInput,
+    db: Session = Depends(get_db),
+) -> CatalogVersion:
+    """
+    Create a new version (draft) for an existing process.
+
+    Uses provided PlantUML code (and optional prompt metadata) and
+    automatically increments `version_number` for the given process.
+    """
+    try:
+        version = catalog_service.create_new_version_for_process(
+            db=db,
+            process_id=process_id,
+            plantuml_code=payload.plantuml_code,
+            prompt_dict=payload.prompt,
+            llm_model=settings.llm.model,
+            tokens_used=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return CatalogVersion(
+        id=version.id,
+        process_id=version.process_id,
+        version_number=version.version_number,
+        created_at=version.created_at,
+        llm_model=version.llm_model,
+        tokens_used=version.tokens_used,
+        status=version.status,
+        plantuml_code=version.plantuml_code,
+    )
+
+@router.delete(
+    "/catalog/{process_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": ErrorResponse}},
+    summary="Delete process and all its versions",
+    tags=["catalog"],
+)
+async def delete_process(
+    process_id: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Delete a process from the catalog, including all its stored versions.
+
+    Returns 204 No Content on success, or 404 if process_id does not exist.
+    """
+    deleted = catalog_service.delete_process_with_versions(db, process_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process with id {process_id} not found.",
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.delete(
+    "/catalog/{process_id}/versions/{version_number}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": ErrorResponse}},
+    summary="Delete a specific version of a process",
+    tags=["catalog"],
+)
+async def delete_process_version(
+    process_id: int,
+    version_number: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Delete a single version identified by (process_id, version_number).
+
+    Returns 204 No Content on success, or 404 if such version does not exist.
+    """
+    deleted = catalog_service.delete_version_for_process(
+        db=db,
+        process_id=process_id,
+        version_number=version_number,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} for process {process_id} not found.",
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
