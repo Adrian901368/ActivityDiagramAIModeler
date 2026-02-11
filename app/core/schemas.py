@@ -133,6 +133,7 @@ class ErrorResponse(BaseModel):
 
 class CatalogVersion(BaseModel):
     id: int
+    process_id: int
     version_number: int
     created_at: datetime
     llm_model: str
@@ -151,6 +152,11 @@ class ProcessInCatalog(BaseModel):
     id: int
     name: str
     domain: str | None = None
+    versions_count: int
 
     class Config:
         from_attributes = True
+
+class NewVersionInput(BaseModel):
+    plantuml_code: str
+    prompt: dict | None = None
