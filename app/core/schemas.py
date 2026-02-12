@@ -135,6 +135,7 @@ class CatalogVersion(BaseModel):
     id: int
     process_id: int
     version_number: int
+    version_name: str = ""
     created_at: datetime
     llm_model: str
     tokens_used: Optional[int] = None

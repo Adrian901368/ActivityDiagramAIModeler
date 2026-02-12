@@ -1,14 +1,20 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Response
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Query
 from sqlalchemy.orm import Session
 
 from app.core.prompts import build_activity_diagram_system_prompt
+from app.services import catalog_service
 from app.services.llm_service import generate_simple_response
 from app.services.plantuml_validator import validate_plantuml
-from app.services.catalog_service import save_process_version
+from app.services.catalog_service import (
+    save_process_version,
+    create_new_version_for_process,
+    delete_process_with_versions,
+    delete_version_for_process,
+    publish_version,
+    update_draft_version,
+)
 from app.core.config import settings
 from app.database.session import get_db
-from app.core.schemas import ProcessInCatalog
-from app.services import catalog_service
 
 from app.database.models import Process, Version
 from app.core.schemas import (
@@ -17,6 +23,7 @@ from app.core.schemas import (
     ErrorResponse,
     CatalogProcessDetail,
     CatalogVersion,
+    ProcessInCatalog,
     NewVersionInput,
 )
 
@@ -42,10 +49,8 @@ async def generate_activity_diagram(
     Additionally, each successful generation is stored in the model catalog
     as a new version of the given process.
     """
-    # 1) Build system prompt (rules for PlantUML output)
     system_prompt = build_activity_diagram_system_prompt()
 
-    # 2) Prepare JSON payload for the LLM from validated Pydantic model
     user_content = {
         "process_name": payload.process_name,
         "domain": payload.domain,
@@ -59,7 +64,6 @@ async def generate_activity_diagram(
         ),
     }
 
-    # 3) Build OpenAI‑compatible messages
     messages = [
         {"role": "system", "content": system_prompt},
         {
@@ -73,7 +77,6 @@ async def generate_activity_diagram(
         },
     ]
 
-    # 4) Call LLM service
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
@@ -82,14 +85,12 @@ async def generate_activity_diagram(
             detail=f"LLM call failed: {exc}",
         )
 
-    # 5) Basic sanity check – must contain @startuml/@enduml
     if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
         raise HTTPException(
             status_code=500,
             detail="LLM did not return valid PlantUML code.",
         )
 
-    # 6) Syntax validation via PlantUML server (HTTPS)
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
@@ -97,7 +98,6 @@ async def generate_activity_diagram(
             detail=f"Generated PlantUML has syntax errors: {error_msg}",
         )
 
-    # 7) Save to catalog as a new version of the process
     try:
         save_process_version(
             db=db,
@@ -114,7 +114,6 @@ async def generate_activity_diagram(
             detail=f"Failed to save process version: {exc}",
         )
 
-    # 8) Successful response
     return GenerateResponse(
         plantuml_code=plantuml_code,
         process_name=payload.process_name,
@@ -137,6 +136,7 @@ async def list_processes(
     (without PlantUML code, only basic metadata).
     """
     return catalog_service.get_all_processes(db)
+
 
 @router.get(
     "/catalog/{process_id}",
@@ -172,6 +172,7 @@ async def get_process_catalog(
             id=v.id,
             process_id=v.process_id,
             version_number=v.version_number,
+            version_name=(getattr(v, "version_name", "") or ""),
             created_at=v.created_at,
             llm_model=v.llm_model,
             tokens_used=v.tokens_used,
@@ -188,6 +189,7 @@ async def get_process_catalog(
         versions=version_items,
     )
 
+
 @router.post(
     "/catalog/{process_id}/versions",
     response_model=CatalogVersion,
@@ -198,14 +200,9 @@ async def get_process_catalog(
 async def create_process_version(
     process_id: int,
     payload: NewVersionInput,
+    version_name: str = Query("", description="Optional human-friendly name of this version"),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
-    """
-    Create a new version (draft) for an existing process.
-
-    Uses provided PlantUML code (and optional prompt metadata) and
-    automatically increments `version_number` for the given process.
-    """
     try:
         version = catalog_service.create_new_version_for_process(
             db=db,
@@ -214,6 +211,7 @@ async def create_process_version(
             prompt_dict=payload.prompt,
             llm_model=settings.llm.model,
             tokens_used=None,
+            version_name=version_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -222,12 +220,71 @@ async def create_process_version(
         id=version.id,
         process_id=version.process_id,
         version_number=version.version_number,
+        version_name=version.version_name or "",
         created_at=version.created_at,
         llm_model=version.llm_model,
         tokens_used=version.tokens_used,
         status=version.status,
         plantuml_code=version.plantuml_code,
     )
+
+
+@router.put(
+    "/catalog/{process_id}/versions/{version_number}",
+    response_model=CatalogVersion,
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+    summary="Update draft version of a process",
+    tags=["catalog"],
+)
+async def update_draft_process_version(
+    process_id: int,
+    version_number: int,
+    payload: NewVersionInput,   # len plantuml_code + prompt
+    version_name: str = Query(
+        "",
+        description="Optional name of this version",
+    ),
+    db: Session = Depends(get_db),
+) -> CatalogVersion:
+    """
+    Update PlantUML code (and optional prompt + version_name) for a *draft* version.
+
+    - 404, if (process_id, version_number) does not exist.
+    - 400, if version is not in 'draft' status.
+    """
+    try:
+        version = catalog_service.update_draft_version(
+            db=db,
+            process_id=process_id,
+            version_number=version_number,
+            plantuml_code=payload.plantuml_code,
+            prompt_dict=payload.prompt,
+            version_name=version_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} for process {process_id} not found.",
+        )
+
+    return CatalogVersion(
+        id=version.id,
+        process_id=version.process_id,
+        version_number=version.version_number,
+        version_name=version.version_name or "",
+        created_at=version.created_at,
+        llm_model=version.llm_model,
+        tokens_used=version.tokens_used,
+        status=version.status,
+        plantuml_code=version.plantuml_code,
+    )
+
 
 @router.delete(
     "/catalog/{process_id}",
@@ -242,10 +299,8 @@ async def delete_process(
 ) -> Response:
     """
     Delete a process from the catalog, including all its stored versions.
-
-    Returns 204 No Content on success, or 404 if process_id does not exist.
     """
-    deleted = catalog_service.delete_process_with_versions(db, process_id)
+    deleted = delete_process_with_versions(db, process_id)
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -253,6 +308,7 @@ async def delete_process(
         )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 @router.delete(
     "/catalog/{process_id}/versions/{version_number}",
@@ -268,10 +324,8 @@ async def delete_process_version(
 ) -> Response:
     """
     Delete a single version identified by (process_id, version_number).
-
-    Returns 204 No Content on success, or 404 if such version does not exist.
     """
-    deleted = catalog_service.delete_version_for_process(
+    deleted = delete_version_for_process(
         db=db,
         process_id=process_id,
         version_number=version_number,
@@ -283,3 +337,52 @@ async def delete_process_version(
         )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.put(
+    "/catalog/{process_id}/versions/{version_number}/publish",
+    response_model=CatalogVersion,
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+    summary="Publish version for a process",
+    tags=["catalog"],
+)
+async def publish_process_version(
+    process_id: int,
+    version_number: int,
+    db: Session = Depends(get_db),
+) -> CatalogVersion:
+    """
+    Publish a specific version of a process.
+
+    - Selected version (draft/archived) becomes 'active'.
+    - All other versions of the process become 'archived'.
+    - If version is already 'active' -> 400.
+    """
+    try:
+        version = publish_version(
+            db=db,
+            process_id=process_id,
+            version_number=version_number,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} for process {process_id} not found.",
+        )
+
+    return CatalogVersion(
+        id=version.id,
+        process_id=version.process_id,
+        version_number=version.version_number,
+        version_name=(version.version_name or ""),
+        created_at=version.created_at,
+        llm_model=version.llm_model,
+        tokens_used=version.tokens_used,
+        status=version.status,
+        plantuml_code=version.plantuml_code,
+    )
