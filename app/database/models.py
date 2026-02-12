@@ -32,6 +32,7 @@ class Version(Base):
     id = Column(Integer, primary_key=True, index=True)
     process_id = Column(Integer, ForeignKey("processes.id"), nullable=False, index=True)
     version_number = Column(Integer, nullable=False)
+    version_name = Column(String, nullable=False, default="")
     plantuml_code = Column(Text, nullable=False)
     prompt = Column(JSON, nullable=False)
     llm_model = Column(String(100), nullable=False)

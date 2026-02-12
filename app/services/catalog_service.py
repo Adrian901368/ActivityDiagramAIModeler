@@ -90,6 +90,7 @@ def create_new_version_for_process(
     prompt_dict: dict | None,
     llm_model: str | None,
     tokens_used: int | None = None,
+    version_name: str = "",
 ) -> Version:
     """
     Create a new Version row for an existing process.
@@ -112,6 +113,7 @@ def create_new_version_for_process(
     new_version = Version(
         process_id=process_id,
         version_number=next_version_number,
+        version_name=version_name,
         plantuml_code=plantuml_code,
         prompt=prompt_dict,
         llm_model=llm_model,
@@ -149,3 +151,79 @@ def delete_version_for_process(
     db.delete(version)
     db.commit()
     return True
+
+def publish_version(
+    db: Session,
+    process_id: int,
+    version_number: int,
+) -> Version | None:
+    """
+    Set given version (process_id, version_number) as ACTIVE and
+    archive all other versions of that process.
+
+    - No version-> None
+    - if ACTIVE -> ValueError
+    """
+    version = (
+        db.query(Version)
+        .filter(
+            Version.process_id == process_id,
+            Version.version_number == version_number,
+        )
+        .first()
+    )
+    if version is None:
+        return None
+
+    if version.status == "active":
+        raise ValueError("Version is already active and cannot be re-published.")
+
+    (
+        db.query(Version)
+        .filter(Version.process_id == process_id)
+        .filter(Version.version_number != version_number)
+        .update({"status": "archived"}, synchronize_session=False)
+    )
+
+    version.status = "active"
+
+    db.commit()
+    db.refresh(version)
+    return version
+
+def update_draft_version(
+    db: Session,
+    process_id: int,
+    version_number: int,
+    plantuml_code: str,
+    prompt_dict: dict | None,
+    version_name: str = "",
+) -> Version | None:
+    """
+    Update PlantUML for version in 'draft'.
+
+    - No version -> returns None.
+    - No 'draft' -> throw ValueError.
+    """
+    version = (
+        db.query(Version)
+        .filter(
+            Version.process_id == process_id,
+            Version.version_number == version_number,
+        )
+        .first()
+    )
+
+    if version is None:
+        return None
+
+    if version.status != "draft":
+        raise ValueError("Only draft versions can be modified.")
+
+    version.plantuml_code = plantuml_code
+    version.prompt = prompt_dict
+    version.version_name = version_name
+
+    db.commit()
+    db.refresh(version)
+    return version
