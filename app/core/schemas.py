@@ -41,25 +41,11 @@ class ParallelBlock(BaseModel):
     actions: List[Action] = Field(..., min_items=2, max_items=5)
 
 
-class ProcessInput(BaseModel):
+class ProcessStructureInput(BaseModel):
     """
-    Main input model for generating a UML Activity Diagram.
+    Structure of the process used for generation.
+    Does NOT contain process_name/domain – tie idú z query parametrov.
     """
-    process_name: str = Field(
-        ...,
-        min_length=3,
-        max_length=255,
-        description="Name of the business process",
-        examples=["Order processing", "User registration"],
-    )
-
-    domain: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="Domain/category of the process (e.g., E-commerce, HR)",
-        examples=["E-commerce", "Banking", "Healthcare"],
-    )
-
     actors: List[str] = Field(
         ...,
         min_items=1,
@@ -87,13 +73,6 @@ class ProcessInput(BaseModel):
         description="Parallel execution of actions (optional)",
     )
 
-    @field_validator("process_name")
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Process name must not be empty")
-        return v.strip()
-
     @field_validator("actors")
     @classmethod
     def validate_actors(cls, v: List[str]) -> List[str]:
@@ -110,6 +89,7 @@ class ProcessInput(BaseModel):
         if not v:
             raise ValueError("There must be at least one action")
         return v
+
 
 
 class GenerateResponse(BaseModel):

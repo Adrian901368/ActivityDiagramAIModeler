@@ -10,44 +10,72 @@ from app.database.models import Process, Version
 def save_process_version(
     db: Session,
     process_name: str,
-    domain: Optional[str],
-    prompt_dict: Dict,
+    domain: str | None,
+    prompt_dict: dict,
     plantuml_code: str,
     llm_model: str,
-    tokens_used: Optional[int] = None,
+    tokens_used: int | None = None,
+    version_name: str | None = None,
 ) -> Version:
-    stmt = select(Process).where(Process.name == process_name)
-    process = db.execute(stmt).scalar_one_or_none()
+    """
+    Find or create Process by (name, domain) and save a new Version.
+
+    If version_name is not provided, it is generated automatically
+    as 'vX' where X is the new version_number.
+    """
+
+    # 1) nájdi alebo vytvor process
+    process = (
+        db.query(Process)
+        .filter(Process.name == process_name, Process.domain == domain)
+        .first()
+    )
 
     if process is None:
         process = Process(name=process_name, domain=domain)
         db.add(process)
-        db.flush()
+        db.flush()  # aby mal process.id ešte pred vytvorením verzie
 
-    stmt_ver = (
-        select(func.coalesce(func.max(Version.version_number), 0))
-        .where(Version.process_id == process.id)
+    # 2) zisti posledné version_number pre daný process
+    latest_number = (
+        db.query(func.max(Version.version_number))
+        .filter(Version.process_id == process.id)
+        .scalar()
+        or 0
     )
-    last_version = db.execute(stmt_ver).scalar_one()
-    next_version = last_version + 1
+    new_number = latest_number + 1
 
+    # 3) ak version_name nie je zadané, vygeneruj default vX
+    if not version_name:
+        version_name = f"v{new_number}"
+
+    # 4) vytvor a ulož Version
     version = Version(
         process_id=process.id,
-        version_number=next_version,
+        version_number=new_number,
+        version_name=version_name,
         plantuml_code=plantuml_code,
-        prompt=prompt_dict,
         llm_model=llm_model,
         tokens_used=tokens_used,
+        prompt=prompt_dict,
         status="draft",
     )
+
     db.add(version)
     db.commit()
     db.refresh(version)
-
     return version
 
-def get_all_processes(db: Session) -> List[ProcessInCatalog]:
-    rows = (
+def get_all_processes(
+    db: Session,
+    name: str | None = None,
+    domain: str | None = None,
+) -> list[ProcessInCatalog]:
+    """
+    List processes with optional filtering by name/domain and
+    aggregated versions_count.
+    """
+    query = (
         db.query(
             Process.id,
             Process.name,
@@ -56,8 +84,14 @@ def get_all_processes(db: Session) -> List[ProcessInCatalog]:
         )
         .outerjoin(Version, Version.process_id == Process.id)
         .group_by(Process.id, Process.name, Process.domain)
-        .all()
     )
+
+    if name:
+        query = query.filter(Process.name.ilike(f"%{name}%"))
+    if domain:
+        query = query.filter(Process.domain.ilike(f"%{domain}%"))
+
+    rows = query.all()
 
     return [
         ProcessInCatalog(
