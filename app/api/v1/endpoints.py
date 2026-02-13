@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Response, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Query, Body
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.core.prompts import build_activity_diagram_system_prompt
 from app.services import catalog_service
@@ -18,7 +19,7 @@ from app.database.session import get_db
 
 from app.database.models import Process, Version
 from app.core.schemas import (
-    ProcessInput,
+    ProcessStructureInput,
     GenerateResponse,
     ErrorResponse,
     CatalogProcessDetail,
@@ -38,22 +39,31 @@ router = APIRouter()
     tags=["generation"],
 )
 async def generate_activity_diagram(
-    payload: ProcessInput,
+    process_name: str = Query(
+        ...,
+        description="Name of the business process",
+        example="Order processing",
+    ),
+    domain: str = Query(
+        ...,
+        description="Domain/category of the process",
+        example="E-commerce",
+    ),
+    version_name: Optional[str] = Query(
+        default=None,
+        description="Optional human‑readable label for this version (e.g. v1, draft-1)",
+        example="v1 - initial draft",
+    ),
+    payload: ProcessStructureInput = Body(...),
     db: Session = Depends(get_db),
 ) -> GenerateResponse:
-    """
-    Main endpoint of the application.
-
-    Takes a structured JSON description of a process (ProcessInput) and
-    returns PlantUML code for a UML Activity Diagram based on that input.
-    Additionally, each successful generation is stored in the model catalog
-    as a new version of the given process.
-    """
     system_prompt = build_activity_diagram_system_prompt()
 
+    # JSON, ktorý ide do LLM aj do DB – doplníme version_name
     user_content = {
-        "process_name": payload.process_name,
-        "domain": payload.domain,
+        "process_name": process_name,
+        "domain": domain,
+        "version_name": version_name,
         "actors": payload.actors,
         "actions": [a.model_dump() for a in payload.actions],
         "decisions": [d.model_dump() for d in payload.decisions] if payload.decisions else None,
@@ -101,8 +111,9 @@ async def generate_activity_diagram(
     try:
         save_process_version(
             db=db,
-            process_name=payload.process_name,
-            domain=payload.domain,
+            process_name=process_name,
+            domain=domain,
+            version_name=version_name,
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
@@ -116,10 +127,11 @@ async def generate_activity_diagram(
 
     return GenerateResponse(
         plantuml_code=plantuml_code,
-        process_name=payload.process_name,
+        process_name=process_name,
         model_used=settings.llm.model,
         tokens_used=None,
     )
+
 
 
 @router.get(
@@ -129,13 +141,21 @@ async def generate_activity_diagram(
     tags=["catalog"],
 )
 async def list_processes(
+    name: str | None = Query(
+        default=None,
+        description="Substring of process name (case-insensitive)",
+    ),
+    domain: str | None = Query(
+        default=None,
+        description="Substring of domain (case-insensitive)",
+    ),
     db: Session = Depends(get_db),
 ) -> list[ProcessInCatalog]:
     """
-    Return a list of all processes in the catalog
-    (without PlantUML code, only basic metadata).
+    Return a list of all processes in the catalog, optionally filtered by
+    name and/or domain (case-insensitive substring match).
     """
-    return catalog_service.get_all_processes(db)
+    return catalog_service.get_all_processes(db, name=name, domain=domain)
 
 
 @router.get(
@@ -147,11 +167,21 @@ async def list_processes(
 )
 async def get_process_catalog(
     process_id: int,
+    version_name: str | None = Query(
+        default=None,
+        description="Substring of version name to filter versions",
+    ),
+    status: str | None = Query(
+        default=None,
+        description="Version status filter: draft, active, archived",
+    ),
     db: Session = Depends(get_db),
 ) -> CatalogProcessDetail:
     """
     Return catalog information for a single process, including all
     stored versions and their PlantUML code.
+
+    Optionally filter versions by version_name (substring) and/or status.
     """
     process = db.query(Process).filter(Process.id == process_id).first()
     if process is None:
@@ -160,19 +190,25 @@ async def get_process_catalog(
             detail=f"Process with id {process_id} not found.",
         )
 
-    versions = (
+    query = (
         db.query(Version)
         .filter(Version.process_id == process.id)
         .order_by(Version.version_number.desc())
-        .all()
     )
+
+    if version_name:
+        query = query.filter(Version.version_name.ilike(f"%{version_name}%"))
+    if status:
+        query = query.filter(Version.status == status)
+
+    versions = query.all()
 
     version_items = [
         CatalogVersion(
             id=v.id,
             process_id=v.process_id,
             version_number=v.version_number,
-            version_name=(getattr(v, "version_name", "") or ""),
+            version_name=v.version_name or "",
             created_at=v.created_at,
             llm_model=v.llm_model,
             tokens_used=v.tokens_used,
