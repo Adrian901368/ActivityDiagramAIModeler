@@ -1,10 +1,35 @@
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.schemas import ProcessInCatalog
 from app.database.models import Process, Version
+
+
+def get_or_create_process(
+    db: Session,
+    name: str,
+    domain: str | None = None,
+) -> Process:
+    """
+    Find existing Process by (name, domain) or create a new one.
+
+    This helper is useful for text-based /generate endpoint, where we want
+    to reuse a process if it already exists in the catalog.
+    """
+    process = (
+        db.query(Process)
+        .filter(Process.name == name, Process.domain == domain)
+        .first()
+    )
+
+    if process is None:
+        process = Process(name=name, domain=domain)
+        db.add(process)
+        db.flush()  # ensure process.id is available
+
+    return process
 
 
 def save_process_version(
@@ -23,20 +48,10 @@ def save_process_version(
     If version_name is not provided, it is generated automatically
     as 'vX' where X is the new version_number.
     """
+    # 1) find or create process
+    process = get_or_create_process(db=db, name=process_name, domain=domain)
 
-    # 1) nájdi alebo vytvor process
-    process = (
-        db.query(Process)
-        .filter(Process.name == process_name, Process.domain == domain)
-        .first()
-    )
-
-    if process is None:
-        process = Process(name=process_name, domain=domain)
-        db.add(process)
-        db.flush()  # aby mal process.id ešte pred vytvorením verzie
-
-    # 2) zisti posledné version_number pre daný process
+    # 2) find latest version_number for this process
     latest_number = (
         db.query(func.max(Version.version_number))
         .filter(Version.process_id == process.id)
@@ -45,26 +60,28 @@ def save_process_version(
     )
     new_number = latest_number + 1
 
-    # 3) ak version_name nie je zadané, vygeneruj default vX
+    # 3) generate default version_name if not provided
     if not version_name:
         version_name = f"v{new_number}"
 
-    # 4) vytvor a ulož Version
+    # 4) create and persist Version
     version = Version(
         process_id=process.id,
         version_number=new_number,
         version_name=version_name,
         plantuml_code=plantuml_code,
+        prompt=prompt_dict,
         llm_model=llm_model,
         tokens_used=tokens_used,
-        prompt=prompt_dict,
         status="draft",
     )
 
     db.add(version)
     db.commit()
     db.refresh(version)
+
     return version
+
 
 def get_all_processes(
     db: Session,
@@ -103,9 +120,11 @@ def get_all_processes(
         for row in rows
     ]
 
+
 def delete_process_with_versions(db: Session, process_id: int) -> bool:
     """
     Delete a process and all its versions.
+
     Returns True if something was deleted, False if process does not exist.
     """
     process = db.query(Process).filter(Process.id == process_id).first()
@@ -115,7 +134,9 @@ def delete_process_with_versions(db: Session, process_id: int) -> bool:
     db.query(Version).filter(Version.process_id == process_id).delete()
     db.delete(process)
     db.commit()
+
     return True
+
 
 def create_new_version_for_process(
     db: Session,
@@ -128,6 +149,7 @@ def create_new_version_for_process(
 ) -> Version:
     """
     Create a new Version row for an existing process.
+
     version_number is auto-incremented (max + 1).
     """
     process = db.query(Process).filter(Process.id == process_id).first()
@@ -149,16 +171,18 @@ def create_new_version_for_process(
         version_number=next_version_number,
         version_name=version_name,
         plantuml_code=plantuml_code,
-        prompt=prompt_dict,
-        llm_model=llm_model,
+        prompt=prompt_dict or {},
+        llm_model=llm_model or "",
         tokens_used=tokens_used,
-        status="draft",  # alebo default podľa tvojho modelu
+        status="draft",
     )
 
     db.add(new_version)
     db.commit()
     db.refresh(new_version)
+
     return new_version
+
 
 def delete_version_for_process(
     db: Session,
@@ -184,7 +208,9 @@ def delete_version_for_process(
 
     db.delete(version)
     db.commit()
+
     return True
+
 
 def publish_version(
     db: Session,
@@ -195,8 +221,8 @@ def publish_version(
     Set given version (process_id, version_number) as ACTIVE and
     archive all other versions of that process.
 
-    - No version-> None
-    - if ACTIVE -> ValueError
+    - No version -> None
+    - If already ACTIVE -> ValueError
     """
     version = (
         db.query(Version)
@@ -206,24 +232,26 @@ def publish_version(
         )
         .first()
     )
+
     if version is None:
         return None
 
     if version.status == "active":
         raise ValueError("Version is already active and cannot be re-published.")
 
-    (
-        db.query(Version)
-        .filter(Version.process_id == process_id)
-        .filter(Version.version_number != version_number)
-        .update({"status": "archived"}, synchronize_session=False)
-    )
+    # archive all other versions of the same process
+    db.query(Version).filter(
+        Version.process_id == process_id,
+        Version.version_number != version_number,
+    ).update({"status": "archived"}, synchronize_session=False)
 
+    # set selected version to active
     version.status = "active"
-
     db.commit()
     db.refresh(version)
+
     return version
+
 
 def update_draft_version(
     db: Session,
@@ -234,10 +262,10 @@ def update_draft_version(
     version_name: str = "",
 ) -> Version | None:
     """
-    Update PlantUML for version in 'draft'.
+    Update PlantUML (and optional prompt + version_name) for a version in 'draft'.
 
     - No version -> returns None.
-    - No 'draft' -> throw ValueError.
+    - Status != 'draft' -> raises ValueError.
     """
     version = (
         db.query(Version)
@@ -255,9 +283,10 @@ def update_draft_version(
         raise ValueError("Only draft versions can be modified.")
 
     version.plantuml_code = plantuml_code
-    version.prompt = prompt_dict
+    version.prompt = prompt_dict or {}
     version.version_name = version_name
 
     db.commit()
     db.refresh(version)
+
     return version

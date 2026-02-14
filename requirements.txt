@@ -13,3 +13,5 @@ openai
 plantuml
 
 python-dotenv
+
+pydantic-settings
