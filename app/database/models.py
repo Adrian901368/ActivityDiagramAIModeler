@@ -32,7 +32,6 @@ class Process(Base):
     domain = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
 
-    # 1:N väzba na verzie diagramu
     versions = relationship(
         "Version",
         back_populates="process",
