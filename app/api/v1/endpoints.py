@@ -1,6 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Response, Query, Body
+# app/api/v1/endpoints.py
+from typing import Optional, List
+
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Depends,
+    status,
+    Response,
+    Query,
+    Body,
+)
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from app.core.prompts import build_activity_diagram_system_prompt
 from app.services import catalog_service
@@ -16,7 +26,6 @@ from app.services.catalog_service import (
 )
 from app.core.config import settings
 from app.database.session import get_db
-
 from app.database.models import Process, Version
 from app.core.schemas import (
     ProcessStructureInput,
@@ -42,31 +51,39 @@ async def generate_activity_diagram(
     process_name: str = Query(
         ...,
         description="Name of the business process",
-        example="Order processing",
     ),
     domain: str = Query(
         ...,
         description="Domain/category of the process",
-        example="E-commerce",
     ),
     version_name: Optional[str] = Query(
         default=None,
         description="Optional human‑readable label for this version (e.g. v1, draft-1)",
-        example="v1 - initial draft",
     ),
     payload: ProcessStructureInput = Body(...),
     db: Session = Depends(get_db),
 ) -> GenerateResponse:
+    """
+    Generate a UML Activity Diagram in PlantUML syntax from structured JSON input.
+
+    - process_name, domain, version_name sú query parametre
+    - body obsahuje iba štruktúru procesu (actors, actions, decisions, parallel_blocks)
+    """
+
     system_prompt = build_activity_diagram_system_prompt()
 
-    # JSON, ktorý ide do LLM aj do DB – doplníme version_name
+    # JSON, ktorý ide do LLM aj do DB – doplníme process_name, domain a version_name
     user_content = {
         "process_name": process_name,
         "domain": domain,
         "version_name": version_name,
         "actors": payload.actors,
         "actions": [a.model_dump() for a in payload.actions],
-        "decisions": [d.model_dump() for d in payload.decisions] if payload.decisions else None,
+        "decisions": (
+            [d.model_dump() for d in payload.decisions]
+            if payload.decisions
+            else None
+        ),
         "parallel_blocks": (
             [pb.model_dump() for pb in payload.parallel_blocks]
             if payload.parallel_blocks
@@ -87,20 +104,23 @@ async def generate_activity_diagram(
         },
     ]
 
+    # 1) LLM volanie
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail=f"LLM call failed: {exc}",
-        )
+        ) from exc
 
+    # 2) Základná kontrola, že LLM vrátil PlantUML
     if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
         raise HTTPException(
             status_code=500,
             detail="LLM did not return valid PlantUML code.",
         )
 
+    # 3) Detailná syntaktická validácia PlantUML
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
@@ -108,49 +128,45 @@ async def generate_activity_diagram(
             detail=f"Generated PlantUML has syntax errors: {error_msg}",
         )
 
+    # 4) Uloženie verzie do katalógu
     try:
         save_process_version(
             db=db,
             process_name=process_name,
             domain=domain,
-            version_name=version_name,
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
             tokens_used=None,
+            version_name=version_name,
         )
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to save process version: {exc}",
-        )
+        ) from exc
 
+    # 5) Úspešná odpoveď
     return GenerateResponse(
+        status="success",
         plantuml_code=plantuml_code,
         process_name=process_name,
-        model_used=settings.llm.model,
         tokens_used=None,
+        model_used=settings.llm.model,
     )
-
 
 
 @router.get(
     "/catalog/processes",
-    response_model=list[ProcessInCatalog],
+    response_model=List[ProcessInCatalog],
     summary="List all processes in catalog",
     tags=["catalog"],
 )
 async def list_processes(
-    name: str | None = Query(
-        default=None,
-        description="Substring of process name (case-insensitive)",
-    ),
-    domain: str | None = Query(
-        default=None,
-        description="Substring of domain (case-insensitive)",
-    ),
+    name: str | None = None,
+    domain: str | None = None,
     db: Session = Depends(get_db),
-) -> list[ProcessInCatalog]:
+) -> List[ProcessInCatalog]:
     """
     Return a list of all processes in the catalog, optionally filtered by
     name and/or domain (case-insensitive substring match).
@@ -167,14 +183,8 @@ async def list_processes(
 )
 async def get_process_catalog(
     process_id: int,
-    version_name: str | None = Query(
-        default=None,
-        description="Substring of version name to filter versions",
-    ),
-    status: str | None = Query(
-        default=None,
-        description="Version status filter: draft, active, archived",
-    ),
+    version_name: str | None = None,
+    status: str | None = None,
     db: Session = Depends(get_db),
 ) -> CatalogProcessDetail:
     """
@@ -202,7 +212,6 @@ async def get_process_catalog(
         query = query.filter(Version.status == status)
 
     versions = query.all()
-
     version_items = [
         CatalogVersion(
             id=v.id,
@@ -236,11 +245,15 @@ async def get_process_catalog(
 async def create_process_version(
     process_id: int,
     payload: NewVersionInput,
-    version_name: str = Query("", description="Optional human-friendly name of this version"),
+    version_name: str = "",
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
+    """
+    Create a new version for an existing process using provided PlantUML
+    code and optional prompt.
+    """
     try:
-        version = catalog_service.create_new_version_for_process(
+        version = create_new_version_for_process(
             db=db,
             process_id=process_id,
             plantuml_code=payload.plantuml_code,
@@ -250,7 +263,7 @@ async def create_process_version(
             version_name=version_name,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return CatalogVersion(
         id=version.id,
@@ -278,11 +291,8 @@ async def create_process_version(
 async def update_draft_process_version(
     process_id: int,
     version_number: int,
-    payload: NewVersionInput,   # len plantuml_code + prompt
-    version_name: str = Query(
-        "",
-        description="Optional name of this version",
-    ),
+    payload: NewVersionInput,
+    version_name: str = "",
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
@@ -292,7 +302,7 @@ async def update_draft_process_version(
     - 400, if version is not in 'draft' status.
     """
     try:
-        version = catalog_service.update_draft_version(
+        version = update_draft_version(
             db=db,
             process_id=process_id,
             version_number=version_number,
@@ -301,7 +311,7 @@ async def update_draft_process_version(
             version_name=version_name,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if version is None:
         raise HTTPException(
@@ -374,6 +384,7 @@ async def delete_process_version(
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
 @router.put(
     "/catalog/{process_id}/versions/{version_number}/publish",
     response_model=CatalogVersion,
@@ -403,7 +414,7 @@ async def publish_process_version(
             version_number=version_number,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if version is None:
         raise HTTPException(
