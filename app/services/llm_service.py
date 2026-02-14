@@ -11,10 +11,6 @@ def get_llm_client() -> OpenAI:
     """
     Create an OpenAI-compatible client for Groq (or another provider)
     using configuration from app.core.config.settings.
-
-    Uses:
-    - settings.llm.api_key
-    - settings.llm.base_url
     """
     return OpenAI(
         api_key=settings.llm.api_key,
@@ -28,7 +24,7 @@ def generate_simple_response(messages: List[Dict[str, str]]) -> str:
 
     Currently used for:
     - /api/v1/generate endpoint (PlantUML generation)
-    - test_llm.py connection test
+    - manual LLM connection tests (test_llm.py, debug scripts)
     """
     client = get_llm_client()
 
@@ -46,64 +42,88 @@ def generate_structured_prompt_from_text(
     description: str,
     process_name: str | None = None,
     domain: str | None = None,
-    language: str = "sk",
+    language: str = "en",
 ) -> Dict[str, Any]:
     """
-    Transform free-text process description into a structured JSON description.
+    Transform a free-text process description into a structured JSON description.
 
     Input:
-        - description: free text description of the process
+        - description: free text description of the process (any language)
         - process_name, domain: optional meta-information
-        - language: language of the description ("sk" / "en" ...)
+        - language: hint for input language (default "en")
 
     Output:
-        - dict compatible with a future ProcessPromptModel:
+        - dict with the following English keys:
+
           {
-            "nazov_procesu": str,
-            "akteri": [str],
-            "akcie": [{"aktor": str, "akcia": str}, ...],
-            "rozhodnutia": [{"podmienka": str, "vetva_ano": str, "vetva_nie": str}, ...],
-            "paralelne_vetvy": [...],
-            "signaly": [...]
+            "process_name": str,               # process name, in English
+            "actors": [str],                   # actor names, in English
+            "actions": [                       # actions, in English
+              {"actor": str, "action": str},
+              ...
+            ],
+            "decisions": [                     # decisions, in English
+              {"condition": str,
+               "branch_yes": str,
+               "branch_no": str},
+              ...
+            ],
+            "parallel_branches": [...],        # may be empty list
+            "signals": [...]                   # may be empty list
           }
 
-    NOTE:
-        Validation against a concrete Pydantic model will be done outside
-        this function (e.g., in endpoints.py) to keep the LLM layer generic.
+      IMPORTANT:
+        - Even if the input description is in Slovak or any other language,
+          ALL actor names, action descriptions, decision conditions and
+          branch texts MUST be written in clear English.
     """
     client = get_llm_client()
 
     system_message = {
         "role": "system",
         "content": (
-            "Si asistent, ktorý z textového opisu procesu vytvorí štruktúrovaný JSON "
-            "podľa nasledujúcej schémy:\n"
-            "- nazov_procesu: string\n"
-            "- akteri: zoznam stringov\n"
-            "- akcie: zoznam objektov {aktor: string, akcia: string}\n"
-            "- rozhodnutia: zoznam objektov {podmienka, vetva_ano, vetva_nie}\n"
-            "- paralelne_vetvy: zoznam (môže byť prázdny)\n"
-            "- signaly: zoznam (môže byť prázdny)\n\n"
-            "Vráť IBA platný JSON objekt bez komentárov a ďalšieho textu."
+            "You are an assistant that converts a natural language description of a "
+            "business process into a structured JSON object.\n\n"
+            "The JSON MUST use exactly the following keys (all in English):\n"
+            "  * 'process_name': string\n"
+            "  * 'actors': array of strings\n"
+            "  * 'actions': array of objects { 'actor': string, 'action': string }\n"
+            "  * 'decisions': array of objects {\n"
+            "        'condition': string,\n"
+            "        'branch_yes': string,\n"
+            "        'branch_no': string\n"
+            "    }\n"
+            "  * 'parallel_branches': array (can be empty)\n"
+            "  * 'signals': array (can be empty)\n\n"
+            "LANGUAGE REQUIREMENTS:\n"
+            "- All VALUES (process name, actor names, actions, decision conditions, "
+            "branch texts) MUST be written in clear English, even if the input "
+            "description is not in English.\n"
+            "- Do NOT add any extra keys.\n"
+            "- Return ONLY a valid JSON object, without comments or any "
+            "surrounding text."
         ),
     }
 
     user_payload: Dict[str, Any] = {
         "description": description,
-        "language": language,
+        "input_language": language,
     }
     if process_name:
-        user_payload["nazov_procesu"] = process_name
+        user_payload["process_name"] = process_name
     if domain:
         user_payload["domain"] = domain
 
     user_message = {
         "role": "user",
         "content": (
-            "Na základe nasledujúceho opisu procesu vytvor JSON podľa špecifikácie "
-            "vyššie. Kľúče musia byť presne: nazov_procesu, akteri, akcie, rozhodnutia, "
-            "paralelne_vetvy, signaly.\n\n"
-            f"Vstupné dáta:\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}"
+            "Based on the following description of a business process, create a "
+            "JSON object that follows the schema described above. Use exactly the "
+            "keys: process_name, actors, actions, decisions, parallel_branches, "
+            "signals.\n\n"
+            "All labels and texts inside the JSON (process name, actor names, "
+            "actions, conditions, branches) MUST be in English.\n\n"
+            f"Input \n{json.dumps(user_payload, ensure_ascii=False, indent=2)}"
         ),
     }
 

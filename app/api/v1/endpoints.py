@@ -1,5 +1,5 @@
 # app/api/v1/endpoints.py
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from fastapi import (
     APIRouter,
@@ -10,11 +10,15 @@ from fastapi import (
     Query,
     Body,
 )
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.prompts import build_activity_diagram_system_prompt
 from app.services import catalog_service
-from app.services.llm_service import generate_simple_response
+from app.services.llm_service import (
+    generate_simple_response,
+    generate_structured_prompt_from_text,
+)
 from app.services.plantuml_validator import validate_plantuml
 from app.services.catalog_service import (
     save_process_version,
@@ -38,6 +42,15 @@ from app.core.schemas import (
 )
 
 router = APIRouter()
+
+
+class TextGenerateInput(BaseModel):
+    """Simple text description input for /generate-from-text."""
+    description: str = Field(
+        ...,
+        description="Free-text description of the business process",
+        example="Customer selects products, system checks availability, payment, shipment...",
+    )
 
 
 @router.post(
@@ -66,13 +79,12 @@ async def generate_activity_diagram(
     """
     Generate a UML Activity Diagram in PlantUML syntax from structured JSON input.
 
-    - process_name, domain, version_name sú query parametre
-    - body obsahuje iba štruktúru procesu (actors, actions, decisions, parallel_blocks)
+    - process_name, domain, version_name are query parameters
+    - body contains only the process structure (actors, actions, decisions, parallel_blocks)
     """
 
     system_prompt = build_activity_diagram_system_prompt()
 
-    # JSON, ktorý ide do LLM aj do DB – doplníme process_name, domain a version_name
     user_content = {
         "process_name": process_name,
         "domain": domain,
@@ -104,7 +116,6 @@ async def generate_activity_diagram(
         },
     ]
 
-    # 1) LLM volanie
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
@@ -113,14 +124,12 @@ async def generate_activity_diagram(
             detail=f"LLM call failed: {exc}",
         ) from exc
 
-    # 2) Základná kontrola, že LLM vrátil PlantUML
     if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
         raise HTTPException(
             status_code=500,
             detail="LLM did not return valid PlantUML code.",
         )
 
-    # 3) Detailná syntaktická validácia PlantUML
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
@@ -128,7 +137,6 @@ async def generate_activity_diagram(
             detail=f"Generated PlantUML has syntax errors: {error_msg}",
         )
 
-    # 4) Uloženie verzie do katalógu
     try:
         save_process_version(
             db=db,
@@ -146,7 +154,183 @@ async def generate_activity_diagram(
             detail=f"Failed to save process version: {exc}",
         ) from exc
 
-    # 5) Úspešná odpoveď
+    return GenerateResponse(
+        status="success",
+        plantuml_code=plantuml_code,
+        process_name=process_name,
+        tokens_used=None,
+        model_used=settings.llm.model,
+    )
+
+
+@router.post(
+    "/generate-from-text",
+    response_model=GenerateResponse,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    summary="Generate UML Activity Diagram from text description",
+    tags=["generation"],
+)
+async def generate_activity_diagram_from_text(
+    process_name: str = Query(
+        ...,
+        description="Name of the business process",
+    ),
+    domain: str = Query(
+        ...,
+        description="Domain/category of the process",
+    ),
+    version_name: Optional[str] = Query(
+        default=None,
+        description="Optional human‑readable label for this version (e.g. v1, draft-text-1)",
+    ),
+    payload: TextGenerateInput = Body(...),
+    db: Session = Depends(get_db),
+) -> GenerateResponse:
+    """
+    End-to-end pipeline for free-text descriptions:
+
+    1) description -> structured JSON (generate_structured_prompt_from_text)
+    2) structured JSON -> PlantUML (same system prompt as /generate)
+    3) PlantUML validation + save version to catalog
+    """
+
+    # 1) Text -> structured description (English keys and values)
+    try:
+        structured: Dict[str, Any] = generate_structured_prompt_from_text(
+            description=payload.description,
+            process_name=process_name,
+            domain=domain,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM text-to-structure call failed: {exc}",
+        ) from exc
+
+    # 2) Read from English-key schema: process_name, actors, actions, decisions, parallel_branches, signals
+    actors = structured.get("actors") or []
+    raw_actions = structured.get("actions") or []
+    raw_decisions = structured.get("decisions") or []
+    # Optional, currently ignored in validation / PlantUML, but kept for future:
+    raw_parallel = structured.get("parallel_branches") or []
+
+    actions = []
+    for item in raw_actions:
+        if not isinstance(item, dict):
+            continue
+        actor = (item.get("actor") or "").strip()
+        action = (item.get("action") or "").strip()
+        if actor and action:
+            actions.append({"actor": actor, "action": action})
+
+    decisions = []
+    for item in raw_decisions:
+        if not isinstance(item, dict):
+            continue
+        condition = (item.get("condition") or "").strip()
+        yes = (item.get("branch_yes") or "").strip()
+        no = (item.get("branch_no") or "").strip()
+        if condition and yes and no:
+            decisions.append(
+                {
+                    "condition": condition,
+                    "branch_yes": yes,
+                    "branch_no": no,
+                }
+            )
+
+    # For now we ignore parallel_branches / signals when building ProcessStructureInput
+    parallel_blocks = None
+    if raw_parallel:
+        # You could later map this to your ParallelBlockInput model.
+        parallel_blocks = None
+
+    # 3) Validate against ProcessStructureInput
+    try:
+        process_structure = ProcessStructureInput(
+            actors=actors,
+            actions=actions,
+            decisions=decisions or None,
+            parallel_blocks=parallel_blocks,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Structured process validation failed: {exc}",
+        ) from exc
+
+    # 4) Use the same system prompt and LLM call as in /generate
+    system_prompt = build_activity_diagram_system_prompt()
+
+    user_content = {
+        "process_name": process_name,
+        "domain": domain,
+        "version_name": version_name,
+        "actors": process_structure.actors,
+        "actions": [a.model_dump() for a in process_structure.actions],
+        "decisions": (
+            [d.model_dump() for d in process_structure.decisions]
+            if process_structure.decisions
+            else None
+        ),
+        "parallel_blocks": (
+            [pb.model_dump() for pb in process_structure.parallel_blocks]
+            if process_structure.parallel_blocks
+            else None
+        ),
+    }
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "You will receive a JSON object that describes a business process. "
+                "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
+                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                f"{user_content}"
+            ),
+        },
+    ]
+
+    try:
+        plantuml_code = generate_simple_response(messages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM call failed: {exc}",
+        ) from exc
+
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(
+            status_code=500,
+            detail="LLM did not return valid PlantUML code.",
+        )
+
+    is_valid, error_msg = validate_plantuml(plantuml_code)
+    if not is_valid:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generated PlantUML has syntax errors: {error_msg}",
+        )
+
+    try:
+        save_process_version(
+            db=db,
+            process_name=process_name,
+            domain=domain,
+            prompt_dict=user_content,
+            plantuml_code=plantuml_code,
+            llm_model=settings.llm.model,
+            tokens_used=None,
+            version_name=version_name,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save process version: {exc}",
+        ) from exc
+
     return GenerateResponse(
         status="success",
         plantuml_code=plantuml_code,
