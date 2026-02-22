@@ -1,12 +1,10 @@
 from pydantic import ValidationError
 
-from app.core.schemas import ProcessInput
+from app.core.schemas import ProcessStructureInput
 
 
-def test_process_input_valid():
+def test_process_structure_input_valid():
     data = {
-        "process_name": "Order processing",
-        "domain": "E-commerce",
         "actors": ["Customer", "System", "Warehouse"],
         "actions": [
             {"actor": "Customer", "action": "Selects products"},
@@ -22,36 +20,35 @@ def test_process_input_valid():
         ],
     }
 
-    process = ProcessInput(**data)
+    process = ProcessStructureInput(**data)
 
-    assert process.process_name == "Order processing"
     assert len(process.actors) == 3
     assert len(process.actions) == 3
+    assert process.decisions is not None
+    assert len(process.decisions) == 1
 
 
-def test_process_input_rejects_empty_name():
+def test_process_structure_rejects_empty_actors_list():
     data = {
-        "process_name": "   ",  # empty after stripping
-        "actors": ["Actor"],
+        "actors": ["   "],
         "actions": [{"actor": "Actor", "action": "Some action"}],
     }
 
     try:
-        ProcessInput(**data)
-        assert False, "Expected ValidationError for empty process_name"
+        ProcessStructureInput(**data)
+        assert False, "Expected ValidationError for empty actors list"
     except ValidationError as e:
-        assert "Process name must not be empty" in str(e)
+        assert "There must be at least one actor" in str(e)
 
 
-def test_process_input_rejects_duplicate_actors():
+def test_process_structure_rejects_duplicate_actors():
     data = {
-        "process_name": "Duplicate actors test",
         "actors": ["Customer", "Customer"],
         "actions": [{"actor": "Customer", "action": "Test action"}],
     }
 
     try:
-        ProcessInput(**data)
+        ProcessStructureInput(**data)
         assert False, "Expected ValidationError for duplicate actors"
     except ValidationError as e:
         assert "Actors must not contain duplicates" in str(e)

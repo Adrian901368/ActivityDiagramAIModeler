@@ -45,11 +45,18 @@ router = APIRouter()
 
 
 class TextGenerateInput(BaseModel):
-    """Simple text description input for /generate-from-text."""
+    """Simple text description input for text-based generation endpoints."""
     description: str = Field(
         ...,
         description="Free-text description of the business process",
-        example="Customer selects products, system checks availability, payment, shipment...",
+        json_schema_extra={
+            "example": (
+                "Customer selects products in the e-shop, system checks stock, "
+                "if all items are available the customer pays and the system "
+                "confirms the order, otherwise the system shows an out-of-stock "
+                "message and the customer edits the cart."
+            )
+        },
     )
 
 
@@ -64,25 +71,24 @@ async def generate_activity_diagram(
     process_name: str = Query(
         ...,
         description="Name of the business process",
+        examples={"example": {"value": "Order processing"}},
     ),
     domain: str = Query(
         ...,
         description="Domain/category of the process",
+        examples={"example": {"value": "E-commerce"}},
     ),
     version_name: Optional[str] = Query(
         default=None,
         description="Optional human‑readable label for this version (e.g. v1, draft-1)",
+        examples={"example": {"value": "v1 - initial draft"}},
     ),
     payload: ProcessStructureInput = Body(...),
     db: Session = Depends(get_db),
 ) -> GenerateResponse:
     """
     Generate a UML Activity Diagram in PlantUML syntax from structured JSON input.
-
-    - process_name, domain, version_name are query parameters
-    - body contains only the process structure (actors, actions, decisions, parallel_blocks)
     """
-
     system_prompt = build_activity_diagram_system_prompt()
 
     user_content = {
@@ -133,8 +139,8 @@ async def generate_activity_diagram(
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
-            status_code=500,
-            detail=f"Generated PlantUML has syntax errors: {error_msg}",
+            status_code=400,
+            detail=f"Generated PlantUML is invalid: {error_msg}",
         )
 
     try:
@@ -142,11 +148,11 @@ async def generate_activity_diagram(
             db=db,
             process_name=process_name,
             domain=domain,
+            version_name=version_name,
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
             tokens_used=None,
-            version_name=version_name,
         )
     except Exception as exc:
         raise HTTPException(
@@ -174,14 +180,17 @@ async def generate_activity_diagram_from_text(
     process_name: str = Query(
         ...,
         description="Name of the business process",
+        examples={"example": {"value": "Order processing"}},
     ),
     domain: str = Query(
         ...,
         description="Domain/category of the process",
+        examples={"example": {"value": "E-commerce"}},
     ),
     version_name: Optional[str] = Query(
         default=None,
         description="Optional human‑readable label for this version (e.g. v1, draft-text-1)",
+        examples={"example": {"value": "v1 - text initial draft"}},
     ),
     payload: TextGenerateInput = Body(...),
     db: Session = Depends(get_db),
@@ -193,8 +202,6 @@ async def generate_activity_diagram_from_text(
     2) structured JSON -> PlantUML (same system prompt as /generate)
     3) PlantUML validation + save version to catalog
     """
-
-    # 1) Text -> structured description (English keys and values)
     try:
         structured: Dict[str, Any] = generate_structured_prompt_from_text(
             description=payload.description,
@@ -207,11 +214,9 @@ async def generate_activity_diagram_from_text(
             detail=f"LLM text-to-structure call failed: {exc}",
         ) from exc
 
-    # 2) Read from English-key schema: process_name, actors, actions, decisions, parallel_branches, signals
     actors = structured.get("actors") or []
     raw_actions = structured.get("actions") or []
     raw_decisions = structured.get("decisions") or []
-    # Optional, currently ignored in validation / PlantUML, but kept for future:
     raw_parallel = structured.get("parallel_branches") or []
 
     actions = []
@@ -239,13 +244,10 @@ async def generate_activity_diagram_from_text(
                 }
             )
 
-    # For now we ignore parallel_branches / signals when building ProcessStructureInput
     parallel_blocks = None
     if raw_parallel:
-        # You could later map this to your ParallelBlockInput model.
         parallel_blocks = None
 
-    # 3) Validate against ProcessStructureInput
     try:
         process_structure = ProcessStructureInput(
             actors=actors,
@@ -259,7 +261,6 @@ async def generate_activity_diagram_from_text(
             detail=f"Structured process validation failed: {exc}",
         ) from exc
 
-    # 4) Use the same system prompt and LLM call as in /generate
     system_prompt = build_activity_diagram_system_prompt()
 
     user_content = {
@@ -310,8 +311,8 @@ async def generate_activity_diagram_from_text(
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
-            status_code=500,
-            detail=f"Generated PlantUML has syntax errors: {error_msg}",
+            status_code=400,
+            detail=f"Generated PlantUML is invalid: {error_msg}",
         )
 
     try:
@@ -319,11 +320,11 @@ async def generate_activity_diagram_from_text(
             db=db,
             process_name=process_name,
             domain=domain,
+            version_name=version_name,
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
             tokens_used=None,
-            version_name=version_name,
         )
     except Exception as exc:
         raise HTTPException(
@@ -347,8 +348,14 @@ async def generate_activity_diagram_from_text(
     tags=["catalog"],
 )
 async def list_processes(
-    name: str | None = None,
-    domain: str | None = None,
+    name: str | None = Query(
+        default=None,
+        description="Substring of process name (case-insensitive)",
+    ),
+    domain: str | None = Query(
+        default=None,
+        description="Substring of domain (case-insensitive)",
+    ),
     db: Session = Depends(get_db),
 ) -> List[ProcessInCatalog]:
     """
@@ -367,15 +374,19 @@ async def list_processes(
 )
 async def get_process_catalog(
     process_id: int,
-    version_name: str | None = None,
-    status: str | None = None,
+    version_name: str | None = Query(
+        default=None,
+        description="Substring of version name to filter versions",
+    ),
+    status: str | None = Query(
+        default=None,
+        description="Version status filter: draft, active, archived",
+    ),
     db: Session = Depends(get_db),
 ) -> CatalogProcessDetail:
     """
     Return catalog information for a single process, including all
     stored versions and their PlantUML code.
-
-    Optionally filter versions by version_name (substring) and/or status.
     """
     process = db.query(Process).filter(Process.id == process_id).first()
     if process is None:
@@ -422,32 +433,159 @@ async def get_process_catalog(
 @router.post(
     "/catalog/{process_id}/versions",
     response_model=CatalogVersion,
-    responses={404: {"model": ErrorResponse}},
-    summary="Create new version for an existing process",
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    summary="Create new version for an existing process from text description",
     tags=["catalog"],
 )
 async def create_process_version(
     process_id: int,
-    payload: NewVersionInput,
-    version_name: str = "",
+    payload: TextGenerateInput,
+    version_name: str = Query(
+        "",
+        description="Optional human-friendly name of this version",
+    ),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
-    Create a new version for an existing process using provided PlantUML
-    code and optional prompt.
+    Create a new version for an existing process using a free-text description.
     """
+    process = db.query(Process).filter(Process.id == process_id).first()
+    if process is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process with id {process_id} not found.",
+        )
+
+    try:
+        structured: Dict[str, Any] = generate_structured_prompt_from_text(
+            description=payload.description,
+            process_name=process.name,
+            domain=process.domain,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM text-to-structure call failed: {exc}",
+        ) from exc
+
+    actors = structured.get("actors") or []
+    raw_actions = structured.get("actions") or []
+    raw_decisions = structured.get("decisions") or []
+    raw_parallel = structured.get("parallel_branches") or []
+
+    actions = []
+    for item in raw_actions:
+        if not isinstance(item, dict):
+            continue
+        actor = (item.get("actor") or "").strip()
+        action = (item.get("action") or "").strip()
+        if actor and action:
+            actions.append({"actor": actor, "action": action})
+
+    decisions = []
+    for item in raw_decisions:
+        if not isinstance(item, dict):
+            continue
+        condition = (item.get("condition") or "").strip()
+        yes = (item.get("branch_yes") or "").strip()
+        no = (item.get("branch_no") or "").strip()
+        if condition and yes and no:
+            decisions.append(
+                {
+                    "condition": condition,
+                    "branch_yes": yes,
+                    "branch_no": no,
+                }
+            )
+
+    parallel_blocks = None
+    if raw_parallel:
+        parallel_blocks = None
+
+    try:
+        process_structure = ProcessStructureInput(
+            actors=actors,
+            actions=actions,
+            decisions=decisions or None,
+            parallel_blocks=parallel_blocks,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Structured process validation failed: {exc}",
+        ) from exc
+
+    system_prompt = build_activity_diagram_system_prompt()
+
+    user_content = {
+        "process_name": process.name,
+        "domain": process.domain,
+        "version_name": version_name,
+        "actors": process_structure.actors,
+        "actions": [a.model_dump() for a in process_structure.actions],
+        "decisions": (
+            [d.model_dump() for d in process_structure.decisions]
+            if process_structure.decisions
+            else None
+        ),
+        "parallel_blocks": (
+            [pb.model_dump() for pb in process_structure.parallel_blocks]
+            if process_structure.parallel_blocks
+            else None
+        ),
+    }
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "You will receive a JSON object that describes a business process. "
+                "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
+                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                f"{user_content}"
+            ),
+        },
+    ]
+
+    try:
+        plantuml_code = generate_simple_response(messages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM call failed: {exc}",
+        ) from exc
+
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(
+            status_code=500,
+            detail="LLM did not return valid PlantUML code.",
+        )
+
+    is_valid, error_msg = validate_plantuml(plantuml_code)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Generated PlantUML is invalid: {error_msg}",
+        )
+
     try:
         version = create_new_version_for_process(
             db=db,
             process_id=process_id,
-            plantuml_code=payload.plantuml_code,
-            prompt_dict=payload.prompt,
+            plantuml_code=plantuml_code,
+            prompt_dict=user_content,
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save new version: {exc}",
+        ) from exc
 
     return CatalogVersion(
         id=version.id,
@@ -468,51 +606,200 @@ async def create_process_version(
     responses={
         400: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
     },
-    summary="Update draft version of a process",
+    summary="Update draft version of a process from text description",
     tags=["catalog"],
 )
 async def update_draft_process_version(
     process_id: int,
     version_number: int,
-    payload: NewVersionInput,
-    version_name: str = "",
+    payload: TextGenerateInput,
+    version_name: str = Query(
+        "",
+        description="Optional name of this version",
+    ),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
-    Update PlantUML code (and optional prompt + version_name) for a *draft* version.
+    Update an existing *draft* version using a free-text description.
 
-    - 404, if (process_id, version_number) does not exist.
-    - 400, if version is not in 'draft' status.
+    Pipeline is identical to create_process_version, but the result overwrites
+    the given draft version instead of creating a new one.
     """
+    process = db.query(Process).filter(Process.id == process_id).first()
+    if process is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process with id {process_id} not found.",
+        )
+
+    version = (
+        db.query(Version)
+        .filter(
+            Version.process_id == process_id,
+            Version.version_number == version_number,
+        )
+        .first()
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version_number} for process {process_id} not found.",
+        )
+    if version.status != "draft":
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft versions can be modified.",
+        )
+
     try:
-        version = update_draft_version(
+        structured: Dict[str, Any] = generate_structured_prompt_from_text(
+            description=payload.description,
+            process_name=process.name,
+            domain=process.domain,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM text-to-structure call failed: {exc}",
+        ) from exc
+
+    actors = structured.get("actors") or []
+    raw_actions = structured.get("actions") or []
+    raw_decisions = structured.get("decisions") or []
+    raw_parallel = structured.get("parallel_branches") or []
+
+    actions = []
+    for item in raw_actions:
+        if not isinstance(item, dict):
+            continue
+        actor = (item.get("actor") or "").strip()
+        action = (item.get("action") or "").strip()
+        if actor and action:
+            actions.append({"actor": actor, "action": action})
+
+    decisions = []
+    for item in raw_decisions:
+        if not isinstance(item, dict):
+            continue
+        condition = (item.get("condition") or "").strip()
+        yes = (item.get("branch_yes") or "").strip()
+        no = (item.get("branch_no") or "").strip()
+        if condition and yes and no:
+            decisions.append(
+                {
+                    "condition": condition,
+                    "branch_yes": yes,
+                    "branch_no": no,
+                }
+            )
+
+    parallel_blocks = None
+    if raw_parallel:
+        parallel_blocks = None
+
+    try:
+        process_structure = ProcessStructureInput(
+            actors=actors,
+            actions=actions,
+            decisions=decisions or None,
+            parallel_blocks=parallel_blocks,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Structured process validation failed: {exc}",
+        ) from exc
+
+    system_prompt = build_activity_diagram_system_prompt()
+
+    user_content = {
+        "process_name": process.name,
+        "domain": process.domain,
+        "version_name": version_name or (version.version_name or ""),
+        "actors": process_structure.actors,
+        "actions": [a.model_dump() for a in process_structure.actions],
+        "decisions": (
+            [d.model_dump() for d in process_structure.decisions]
+            if process_structure.decisions
+            else None
+        ),
+        "parallel_blocks": (
+            [pb.model_dump() for pb in process_structure.parallel_blocks]
+            if process_structure.parallel_blocks
+            else None
+        ),
+    }
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "You will receive a JSON object that describes a business process. "
+                "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
+                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                f"{user_content}"
+            ),
+        },
+    ]
+
+    try:
+        plantuml_code = generate_simple_response(messages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM call failed: {exc}",
+        ) from exc
+
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(
+            status_code=500,
+            detail="LLM did not return valid PlantUML code.",
+        )
+
+    is_valid, error_msg = validate_plantuml(plantuml_code)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Generated PlantUML is invalid: {error_msg}",
+        )
+
+    try:
+        updated = update_draft_version(
             db=db,
             process_id=process_id,
             version_number=version_number,
-            plantuml_code=payload.plantuml_code,
-            prompt_dict=payload.prompt,
-            version_name=version_name,
+            plantuml_code=plantuml_code,
+            prompt_dict=user_content,
+            version_name=user_content["version_name"],
         )
     except ValueError as exc:
+        # e.g. version not in draft (extra safety)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update draft version: {exc}",
+        ) from exc
 
-    if version is None:
+    if updated is None:
         raise HTTPException(
             status_code=404,
             detail=f"Version {version_number} for process {process_id} not found.",
         )
 
     return CatalogVersion(
-        id=version.id,
-        process_id=version.process_id,
-        version_number=version.version_number,
-        version_name=version.version_name or "",
-        created_at=version.created_at,
-        llm_model=version.llm_model,
-        tokens_used=version.tokens_used,
-        status=version.status,
-        plantuml_code=version.plantuml_code,
+        id=updated.id,
+        process_id=updated.process_id,
+        version_number=updated.version_number,
+        version_name=updated.version_name or "",
+        created_at=updated.created_at,
+        llm_model=updated.llm_model,
+        tokens_used=updated.tokens_used,
+        status=updated.status,
+        plantuml_code=updated.plantuml_code,
     )
 
 
@@ -569,6 +856,32 @@ async def delete_process_version(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.delete(
+    "/catalog",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete ALL processes and their versions",
+    tags=["catalog"],
+)
+async def clear_catalog(
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Hard-delete all processes and all their versions from the catalog.
+    """
+    try:
+        db.query(Version).delete()
+        db.query(Process).delete()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear catalog: {exc}",
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.put(
     "/catalog/{process_id}/versions/{version_number}/publish",
     response_model=CatalogVersion,
@@ -586,10 +899,6 @@ async def publish_process_version(
 ) -> CatalogVersion:
     """
     Publish a specific version of a process.
-
-    - Selected version (draft/archived) becomes 'active'.
-    - All other versions of the process become 'archived'.
-    - If version is already 'active' -> 400.
     """
     try:
         version = publish_version(
