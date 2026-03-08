@@ -1,45 +1,36 @@
-# app/api/main.py
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # CORS for frontend
 
 from app.core.config import settings
 from app.api.v1.endpoints import router as v1_router
 from app.database.session import init_db
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Application lifespan context.
-
-    - Runs once on startup: initializes the database.
-    - Runs cleanup code on shutdown (if needed in the future).
-    """
-    # Startup logic
-    init_db()
-    yield
-    # Shutdown logic (currently nothing)
-
-
 app = FastAPI(
     title="Activity Diagram AI Modeler",
     version="1.0.0",
     description="API for generating UML Activity diagrams by LLM.",
-    docs_url="/api-docs",    # Swagger UI
-    redoc_url="/api-redoc",  # ReDoc
-    openapi_url="/api-schema",  # OpenAPI JSON schema
-    lifespan=lifespan,
+    docs_url="/api-docs",
+    redoc_url="/api-redoc",
+    openapi_url="/api-schema",
+)
+
+# Allow frontend (Vite dev server) to call this API
+origins = [
+    "http://localhost:5173",  # Vite dev server
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
 @app.get("/health", tags=["meta"])
-async def health_check() -> dict:
-    """
-    Simple health-check endpoint.
-
-    Returns basic information about the running API and LLM config.
-    """
+async def healthcheck() -> dict:
+    """Simple health-check endpoint."""
     return {
         "status": "ok",
         "llm_provider": settings.llm.provider,
@@ -49,15 +40,15 @@ async def health_check() -> dict:
 
 @app.get("/", tags=["meta"])
 async def root() -> dict:
-    """
-    Root endpoint – quick check that the API is running.
-    """
+    """Root endpoint - quick check that the API is running."""
     return {"message": "ActivityDiagramAIModeler API runs."}
 
 
-# v1 API – all routes from app.api.v1.endpoints
-# will have the /api/v1 prefix, e.g.:
-# POST /api/v1/generate
-# GET  /api/v1/catalog/{process_id}
-# GET  /api/v1/catalog/processes
+@app.on_event("startup")
+def on_startup() -> None:
+    """Application startup hook. Initializes the database."""
+    init_db()
+
+
+# v1 API router
 app.include_router(v1_router, prefix="/api/v1")
