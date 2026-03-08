@@ -1,29 +1,49 @@
-# Python cache a build
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Node / Vite ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# --- Editor directories and files ---
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Python cache & build ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
 build/
-dist/
 *.egg-info/
 
-# Virtuálne prostredie
+# --- Virtual environments ---
 venv/
 .env/
 .venv/
+ENV/
 
-# IDE súbory (PyCharm, VS Code)
-.idea/
-.vscode/
-
-# Logy
-*.log
-
-# Databázy (lokálne, generované)
+# --- Local databases ---
 *.db
+*.sqlite
 *.sqlite3
 
-# OS špecifické
+# --- OS specific ---
 .DS_Store
 Thumbs.db
