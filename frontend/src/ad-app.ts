@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import './ad-catalog-view'; // catalog screen
 
 interface CatalogProcess {
   id: number;
@@ -7,6 +8,8 @@ interface CatalogProcess {
   domain: string | null;
   versions_count: number;
 }
+
+type View = 'generate' | 'catalog';
 
 @customElement('ad-app')
 export class AdApp extends LitElement {
@@ -81,7 +84,7 @@ export class AdApp extends LitElement {
 
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+      grid-template-columns: minmax(0, 0.6fr) minmax(0, 2fr);
       gap: 24px;
       align-items: flex-start;
     }
@@ -248,6 +251,24 @@ export class AdApp extends LitElement {
       border: 1px solid rgba(55, 65, 81, 0.9);
     }
 
+    button.text {
+      background: transparent;
+      color: #9ca3af;
+      padding-inline: 0;
+      box-shadow: none;
+    }
+
+    button.text:hover {
+      background: rgba(15, 23, 42, 0.6);
+      box-shadow: none;
+      transform: none;
+    }
+
+    button.full-width {
+      width: 100%;
+      justify-content: center;
+    }
+
     button:disabled {
       opacity: 0.6;
       cursor: default;
@@ -381,7 +402,30 @@ export class AdApp extends LitElement {
       color: #6b7280;
       margin-top: 2px;
     }
+
+    .catalog-actions {
+      margin-top: 10px;
+    }
+
+    .catalog-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      color: #9ca3af;
+    }
   `;
+
+  @state() private view: View = 'generate';
 
   @state() private processName = '';
   @state() private domain = '';
@@ -422,6 +466,12 @@ export class AdApp extends LitElement {
   }
 
   override render() {
+    return this.view === 'generate'
+      ? this.renderGenerateView()
+      : this.renderCatalogView();
+  }
+
+  private renderGenerateView() {
     return html`
       <div class="page">
         <header>
@@ -453,6 +503,15 @@ export class AdApp extends LitElement {
             </div>
 
             ${this.renderProcessesPanel()}
+
+            <div class="catalog-actions">
+              <button
+                class="secondary full-width"
+                @click=${this.onEnterCatalogClick}
+              >
+                Enter catalog
+              </button>
+            </div>
           </aside>
 
           <div class="main-column">
@@ -461,7 +520,7 @@ export class AdApp extends LitElement {
                 <div class="card-title">Process description</div>
               </div>
 
-                            <div class="meta-grid">
+              <div class="meta-grid">
                 <div>
                   <label for="processName">Process name</label>
                   <input
@@ -496,7 +555,6 @@ export class AdApp extends LitElement {
                   />
                 </div>
               </div>
-
 
               <div>
                 <label for="processText">Text prompt</label>
@@ -566,6 +624,33 @@ export class AdApp extends LitElement {
             </section>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderCatalogView() {
+    return html`
+      <div class="page">
+        <header>
+          <div class="title-row">
+            <div>
+              <div class="badge">
+                <span class="badge-dot"></span>
+                Process catalog
+              </div>
+              <h1>Catalog of UML activity diagrams</h1>
+            </div>
+            <button class="text" @click=${this.onBackToGeneratorClick}>
+              ← Back to generator
+            </button>
+          </div>
+          <p class="subtitle">
+            Browse all stored processes and their versions, inspect generated
+            PlantUML code and prepare data for evaluation in your thesis.
+          </p>
+        </header>
+
+        <ad-catalog-view></ad-catalog-view>
       </div>
     `;
   }
@@ -651,6 +736,14 @@ export class AdApp extends LitElement {
     this.errorMessage = '';
   }
 
+  private onEnterCatalogClick(): void {
+    this.view = 'catalog';
+  }
+
+  private onBackToGeneratorClick(): void {
+    this.view = 'generate';
+  }
+
   private async onGenerateClick(): Promise<void> {
     const name = this.processName.trim();
     const domain = this.domain.trim();
@@ -670,7 +763,6 @@ export class AdApp extends LitElement {
     this.isGenerating = true;
     this.errorMessage = '';
 
-    // Very simple mapping from free text to ProcessStructureInput
     const lines = text
       .split('\n')
       .map((l) => l.trim())
@@ -714,7 +806,6 @@ export class AdApp extends LitElement {
 
       const data = await response.json();
       this.plantuml = data.plantuml_code ?? JSON.stringify(data, null, 2);
-      // Refresh catalog list after successful generation
       this.loadProcesses();
     } catch (error: unknown) {
       console.error('Generation failed', error);
