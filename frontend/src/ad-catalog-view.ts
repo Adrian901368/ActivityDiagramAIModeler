@@ -27,6 +27,9 @@ interface CatalogProcessDetail {
   versions: CatalogVersion[];
 }
 
+type CatalogSubView = 'list' | 'create' | 'update';
+type EditMode = 'create' | 'update' | null;
+
 @customElement('ad-catalog-view')
 export class AdCatalogView extends LitElement {
   static override styles = css`
@@ -116,6 +119,31 @@ export class AdCatalogView extends LitElement {
     }
 
     input[type='text']:focus {
+      border-color: #4f46e5;
+      box-shadow:
+        0 0 0 1px rgba(79, 70, 229, 0.8),
+        0 0 18px rgba(59, 130, 246, 0.4);
+      background: rgba(15, 23, 42, 0.95);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 260px;
+      resize: vertical;
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 10px;
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      color: #e5e7eb;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+        sans-serif;
+      font-size: 13px;
+      padding: 10px 11px;
+      box-sizing: border-box;
+      outline: none;
+      line-height: 1.45;
+    }
+
+    textarea:focus {
       border-color: #4f46e5;
       box-shadow:
         0 0 0 1px rgba(79, 70, 229, 0.8),
@@ -223,6 +251,16 @@ export class AdCatalogView extends LitElement {
       background: rgba(15, 23, 42, 0.95);
     }
 
+    button.primary {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #e5e7eb;
+      border: 1px solid rgba(129, 140, 248, 0.9);
+    }
+
+    button.primary:hover {
+      background: linear-gradient(135deg, #4338ca, #6d28d9);
+    }
+
     button.danger {
       background: rgba(127, 29, 29, 0.9);
       color: #fee2e2;
@@ -231,6 +269,17 @@ export class AdCatalogView extends LitElement {
 
     button.danger:hover {
       background: rgba(153, 27, 27, 1);
+    }
+
+    button.text {
+      background: transparent;
+      color: #9ca3af;
+      padding-inline: 0;
+      box-shadow: none;
+    }
+
+    button.text:hover {
+      background: rgba(15, 23, 42, 0.6);
     }
 
     button:disabled {
@@ -398,7 +447,45 @@ export class AdCatalogView extends LitElement {
       line-height: 1.45;
       margin-top: 8px;
     }
+
+    .edit-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .edit-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+
+    .edit-subtitle {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    .edit-meta {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+
+    .edit-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
   `;
+
+  @state() private subView: CatalogSubView = 'list';
 
   @state() private nameFilter = '';
   @state() private domainFilter = '';
@@ -417,6 +504,18 @@ export class AdCatalogView extends LitElement {
   @state() private isDeletingAll = false;
   @state() private isDeletingProcess = false;
   @state() private isMutatingVersion = false;
+
+  // Edit view state – description-based, backend regenerates PlantUML
+  @state() private editMode: EditMode = null;
+  @state() private editProcessId: number | null = null;
+  @state() private editProcessName = '';
+  @state() private editVersionNumber: number | null = null;
+  @state() private editVersionLabel = '';
+  @state() private editDescriptionOriginal = '';
+  @state() private editDescriptionCurrent = '';
+  @state() private editGeneratedPlantuml = '';
+  @state() private editError = '';
+  @state() private isGenerating = false;
 
   override firstUpdated(): void {
     this.loadProcesses();
@@ -445,16 +544,15 @@ export class AdCatalogView extends LitElement {
         throw new Error(`Backend returned status ${resp.status}`);
       }
       const data = (await resp.json()) as CatalogProcess[];
-      this.processes = data;
-
-      if (data.length > 0 && this.selectedProcessId === null) {
-        this.onSelectProcess(data[0]);
+      this.processes = [...data].sort((a, b) => b.id - a.id);
+      if (this.processes.length > 0 && this.selectedProcessId === null) {
+          this.onSelectProcess(this.processes[0]);
       } else if (
-        this.selectedProcessId !== null &&
-        !data.some((p) => p.id === this.selectedProcessId)
+          this.selectedProcessId !== null &&
+          !this.processes.some((p) => p.id === this.selectedProcessId)
       ) {
-        this.selectedProcessId = null;
-        this.processDetail = null;
+          this.selectedProcessId = null;
+          this.processDetail = null;
       }
     } catch (error: unknown) {
       console.error('Failed to load processes', error);
@@ -494,12 +592,17 @@ export class AdCatalogView extends LitElement {
   }
 
   override render() {
-    return html`
-      <div class="layout">
-        ${this.renderLeftColumn()} ${this.renderRightColumn()}
-      </div>
-    `;
+    if (this.subView === 'list') {
+      return html`
+        <div class="layout">
+          ${this.renderLeftColumn()} ${this.renderRightColumn()}
+        </div>
+      `;
+    }
+    return this.renderEditView();
   }
+
+  // ===== LIST / DETAIL VIEW =====
 
   private renderLeftColumn() {
     return html`
@@ -618,7 +721,7 @@ export class AdCatalogView extends LitElement {
             </div>
           </div>
 
-          ${this.renderProcessHeaderActions()}
+        ${this.renderProcessHeaderActions()}
         </div>
 
         ${this.renderProcessDetail()}
@@ -631,13 +734,22 @@ export class AdCatalogView extends LitElement {
       return html``;
     }
     return html`
-      <button
-        class="danger"
-        @click=${this.onDeleteProcessClick}
-        ?disabled=${this.isDeletingProcess}
-      >
-        Delete process
-      </button>
+      <div class="actions-row" style="justify-content: flex-end; margin-top:0">
+        <button
+          class="secondary"
+          @click=${this.onCreateVersionClick}
+          ?disabled=${this.isMutatingVersion}
+        >
+          Create new version
+        </button>
+        <button
+          class="danger"
+          @click=${this.onDeleteProcessClick}
+          ?disabled=${this.isDeletingProcess}
+        >
+          Delete process
+        </button>
+      </div>
     `;
   }
 
@@ -666,7 +778,7 @@ export class AdCatalogView extends LitElement {
           </div>
         </div>
         <span class="pill">
-          Manage versions: publish or delete, inspect PlantUML code
+          Manage versions: create/update description, publish or delete
         </span>
       </div>
 
@@ -678,7 +790,6 @@ export class AdCatalogView extends LitElement {
             <table>
               <thead>
                 <tr>
-                  <th>#</th>
                   <th>Version name</th>
                   <th>Status</th>
                   <th>Created</th>
@@ -704,10 +815,10 @@ export class AdCatalogView extends LitElement {
         : 'archived';
 
     const canPublish = v.status !== 'active';
+    const canUpdate = v.status === 'draft';
 
     return html`
       <tr>
-        <td>${v.version_number}</td>
         <td>${v.version_name || '—'}</td>
         <td>
           <span class="version-status ${statusClass}">${v.status}</span>
@@ -721,6 +832,15 @@ export class AdCatalogView extends LitElement {
             >
               ${this.expandedVersionId === v.id ? 'Hide' : 'Show'} code
             </button>
+            ${canUpdate
+              ? html`<button
+                  class="tiny-btn"
+                  ?disabled=${this.isMutatingVersion}
+                  @click=${() => this.onUpdateVersionClick(v)}
+                >
+                  Update
+                </button>`
+              : null}
             <button
               class="tiny-btn"
               ?disabled=${!canPublish || this.isMutatingVersion}
@@ -762,6 +882,105 @@ ${v.plantuml_code}
     `;
   }
 
+  // ===== EDIT VIEW (description-based create/update with immediate PlantUML preview) =====
+
+  private renderEditView() {
+    const title =
+      this.editMode === 'create' ? 'Create new version' : 'Update draft version';
+    const subtitle =
+      this.editMode === 'create'
+        ? 'Provide a refined text description of the process. The backend will regenerate the PlantUML diagram for this new version.'
+        : 'Update the text description for this draft version. PlantUML will be regenerated on the backend from your description.';
+    const processName = this.editProcessName || 'Unknown process';
+
+    return html`
+      <section class="card">
+        <div class="edit-header">
+          <div>
+            <div class="edit-title">${title}</div>
+            <div class="edit-subtitle">${subtitle}</div>
+          </div>
+          <button class="text" @click=${this.onBackToCatalogClick}>
+            ← Back to catalog
+          </button>
+        </div>
+
+        <div class="edit-meta">
+          Process: <strong>${processName}</strong>
+          ${this.editMode === 'update' && this.editVersionNumber !== null
+            ? html` · Draft version #${this.editVersionNumber}`
+            : null}
+        </div>
+
+        <div style="margin-bottom: 8px;">
+          <label for="editVersionLabel">Version name (optional)</label>
+          <input
+            id="editVersionLabel"
+            type="text"
+            .value=${this.editVersionLabel}
+            @input=${this.onEditVersionLabelChange}
+            placeholder="e.g. ver 2 – improved decision branch"
+            autocomplete="off"
+          />
+        </div>
+
+        <div>
+          <label for="editDescription">Process description</label>
+          <textarea
+            id="editDescription"
+            .value=${this.editDescriptionCurrent}
+            @input=${this.onEditDescriptionChange}
+            placeholder="Describe the process step-by-step for this version. The backend will regenerate the UML Activity diagram from this description."
+          ></textarea>
+        </div>
+
+        ${this.editError ? html`<div class="error">${this.editError}</div>` : null}
+
+        <div class="edit-actions">
+          <button
+            class="secondary"
+            @click=${this.onRevertEditClick}
+            ?disabled=${this.isGenerating ||
+            this.editDescriptionCurrent === this.editDescriptionOriginal}
+          >
+            Revert
+          </button>
+          <button
+            class="primary"
+            @click=${this.onGenerateClick}
+            ?disabled=${this.isGenerating ||
+            !this.editDescriptionCurrent.trim() ||
+            this.editMode === null ||
+            this.editProcessId === null}
+          >
+            ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
+          </button>
+        </div>
+
+        ${this.renderEditGeneratedPlantuml()}
+      </section>
+    `;
+  }
+
+  private renderEditGeneratedPlantuml() {
+    if (!this.editGeneratedPlantuml.trim()) {
+      return html`<div class="placeholder small" style="margin-top: 8px;">
+        Generated PlantUML code for this version will appear here after you
+        click <strong>Generate diagram</strong>.
+      </div>`;
+    }
+    return html`
+      <div style="margin-top: 10px;">
+        <div class="card-subtitle">Generated PlantUML for this version</div>
+        <pre>
+${this.editGeneratedPlantuml}
+        </pre>
+      </div>
+    `;
+  }
+
+  // ===== HANDLERS: FILTERS & SELECTION =====
+
   private onNameFilterChange(event: Event): void {
     const target = event.target as HTMLInputElement;
     this.nameFilter = target.value;
@@ -785,6 +1004,8 @@ ${v.plantuml_code}
     this.expandedVersionId =
       this.expandedVersionId === versionId ? null : versionId;
   }
+
+  // ===== HANDLERS: DELETE / PUBLISH =====
 
   private async onDeleteAllClick(): Promise<void> {
     if (!confirm('Delete ALL processes and their versions from catalog?')) {
@@ -909,6 +1130,162 @@ ${v.plantuml_code}
           : 'Failed to publish version.';
     } finally {
       this.isMutatingVersion = false;
+    }
+  }
+
+  // ===== HANDLERS: CREATE / UPDATE VERSION (NAVIGATION) =====
+
+private onCreateVersionClick(): void {
+  if (!this.processDetail || !this.processDetail.versions.length) {
+    this.detailError =
+      'Cannot create new version – process detail or versions are not loaded.';
+    return;
+  }
+
+  const versions = this.processDetail.versions;
+
+  // Prefer active version; otherwise newest by created_at.
+  let base =
+    versions.find((v) => v.status === 'active') ??
+    [...versions].sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+
+  this.subView = 'create';
+  this.editMode = 'create';
+  this.editProcessId = this.processDetail.process_id;
+  this.editProcessName = this.processDetail.process_name;
+  this.editVersionNumber = null;
+  this.editVersionLabel = '';
+  this.editDescriptionOriginal = '';
+  this.editDescriptionCurrent = '';
+  this.editGeneratedPlantuml = base ? base.plantuml_code : '';
+  this.editError = '';
+}
+
+  private onUpdateVersionClick(v: CatalogVersion): void {
+    if (v.status !== 'draft') return;
+    this.subView = 'update';
+    this.editMode = 'update';
+    this.editProcessId = v.process_id;
+    this.editProcessName = this.processDetail?.process_name ?? '';
+    this.editVersionNumber = v.version_number;
+    this.editVersionLabel = v.version_name;
+    this.editDescriptionOriginal = '';
+    this.editDescriptionCurrent = '';
+    this.editGeneratedPlantuml = v.plantuml_code;
+    this.editError = '';
+  }
+
+  private onBackToCatalogClick(): void {
+    this.subView = 'list';
+    this.editMode = null;
+    this.editError = '';
+    this.isGenerating = false;
+  }
+
+  // ===== HANDLERS: EDIT FORM =====
+
+  private onEditVersionLabelChange(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.editVersionLabel = target.value;
+  }
+
+  private onEditDescriptionChange(event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    this.editDescriptionCurrent = target.value;
+  }
+
+  private onRevertEditClick(): void {
+    this.editDescriptionCurrent = this.editDescriptionOriginal;
+    this.editError = '';
+  }
+
+  private async onGenerateClick(): Promise<void> {
+    if (!this.editMode || this.editProcessId === null) return;
+
+    const description = this.editDescriptionCurrent.trim();
+    if (!description) {
+      this.editError = 'Description must not be empty.';
+      return;
+    }
+
+    this.isGenerating = true;
+    this.editError = '';
+
+    const payload: Record<string, unknown> = {
+      description,
+    };
+
+    const params = new URLSearchParams();
+    if (this.editVersionLabel.trim()) {
+      params.append('version_name', this.editVersionLabel.trim());
+    }
+
+    let url: string;
+    let method: string;
+
+    if (this.editMode === 'create') {
+      url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions`;
+      if (params.toString()) {
+        url += `?${params.toString()}`;
+      }
+      method = 'POST';
+    } else {
+      if (this.editVersionNumber === null) {
+        this.editError = 'Internal error: missing version number.';
+        this.isGenerating = false;
+        return;
+      }
+      url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions/${this.editVersionNumber}`;
+      if (params.toString()) {
+        url += `?${params.toString()}`;
+      }
+      method = 'PUT';
+    }
+
+    try {
+      const resp = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(
+          `Backend returned status ${resp.status}${
+            text ? ` – ${text.slice(0, 200)}` : ''
+          }`
+        );
+      }
+
+      const version = (await resp.json()) as CatalogVersion; // response_model in backend [file:99][file:103]
+
+      // Update local edit state from response
+      this.editGeneratedPlantuml = version.plantuml_code;
+      this.editVersionNumber = version.version_number;
+      this.editVersionLabel = version.version_name;
+      this.editDescriptionOriginal = description;
+
+      // After first create, treat this view as update of that version
+      if (this.editMode === 'create') {
+        this.editMode = 'update';
+      }
+
+      const processId = version.process_id;
+      await this.loadProcessDetail(processId);
+      await this.loadProcesses();
+    } catch (error: unknown) {
+      console.error('Failed to save/generate version', error);
+      this.editError =
+        error instanceof Error
+          ? `Failed to generate version: ${error.message}`
+          : 'Failed to generate version.';
+    } finally {
+      this.isGenerating = false;
     }
   }
 }

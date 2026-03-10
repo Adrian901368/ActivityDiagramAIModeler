@@ -27,7 +27,7 @@ export class AdApp extends LitElement {
     }
 
     .page {
-      max-width: 1200px;
+      max-width: 1360px;
       margin: 0 auto;
       padding: 24px 16px 48px;
       display: flex;
@@ -453,7 +453,7 @@ export class AdApp extends LitElement {
         throw new Error(`Backend returned status ${resp.status}`);
       }
       const data = (await resp.json()) as CatalogProcess[];
-      this.processes = data;
+      this.processes = [...data].sort((a, b) => b.id - a.id);
     } catch (error: unknown) {
       console.error('Failed to load processes', error);
       this.processesError =
