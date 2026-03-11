@@ -46,6 +46,7 @@ router = APIRouter()
 
 class TextGenerateInput(BaseModel):
     """Simple text description input for text-based generation endpoints."""
+
     description: str = Field(
         ...,
         description="Free-text description of the business process",
@@ -94,7 +95,7 @@ async def generate_activity_diagram(
     """
     system_prompt = build_activity_diagram_system_prompt()
 
-    user_content = {
+    user_content: Dict[str, Any] = {
         "process_name": process_name,
         "domain": domain,
         "version_name": version_name,
@@ -133,7 +134,11 @@ async def generate_activity_diagram(
             detail=f"LLM call failed: {exc}",
         ) from exc
 
-    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+    if (
+        not plantuml_code
+        or "@startuml" not in plantuml_code
+        or "@enduml" not in plantuml_code
+    ):
         raise HTTPException(
             status_code=500,
             detail="LLM did not return valid PlantUML code.",
@@ -152,6 +157,7 @@ async def generate_activity_diagram(
         process_name=process_name,
         tokens_used=None,
         model_used=settings.llm.model,
+        prompt=user_content,
     )
 
 
@@ -208,7 +214,7 @@ async def generate_activity_diagram_from_text(
     raw_decisions = structured.get("decisions") or []
     raw_parallel = structured.get("parallel_branches") or []
 
-    actions = []
+    actions: List[Dict[str, str]] = []
     for item in raw_actions:
         if not isinstance(item, dict):
             continue
@@ -217,7 +223,7 @@ async def generate_activity_diagram_from_text(
         if actor and action:
             actions.append({"actor": actor, "action": action})
 
-    decisions = []
+    decisions: List[Dict[str, str]] = []
     for item in raw_decisions:
         if not isinstance(item, dict):
             continue
@@ -253,7 +259,7 @@ async def generate_activity_diagram_from_text(
 
     system_prompt = build_activity_diagram_system_prompt()
 
-    user_content = {
+    user_content: Dict[str, Any] = {
         "process_name": process_name,
         "domain": domain,
         "version_name": version_name,
@@ -292,7 +298,11 @@ async def generate_activity_diagram_from_text(
             detail=f"LLM call failed: {exc}",
         ) from exc
 
-    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+    if (
+        not plantuml_code
+        or "@startuml" not in plantuml_code
+        or "@enduml" not in plantuml_code
+    ):
         raise HTTPException(
             status_code=500,
             detail="LLM did not return valid PlantUML code.",
@@ -311,6 +321,7 @@ async def generate_activity_diagram_from_text(
         process_name=process_name,
         tokens_used=None,
         model_used=settings.llm.model,
+        prompt=user_content,
     )
 
 
@@ -617,6 +628,7 @@ async def update_draft_process_version(
         )
         .first()
     )
+
     if version is None:
         raise HTTPException(
             status_code=404,
@@ -733,6 +745,7 @@ async def delete_process_version(
         process_id=process_id,
         version_number=version_number,
     )
+
     if not deleted:
         raise HTTPException(
             status_code=404,

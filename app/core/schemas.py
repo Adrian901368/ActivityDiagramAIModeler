@@ -150,6 +150,7 @@ class GenerateResponse(BaseModel):
     process_name: str
     tokens_used: Optional[int] = None
     model_used: str
+    prompt: dict | None = None
 
 
 class ErrorResponse(BaseModel):
