@@ -51,6 +51,7 @@ export class AdApp extends LitElement {
 
     .badge {
       font-size: 12px;
+      font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: #a5b4fc;
@@ -102,7 +103,7 @@ export class AdApp extends LitElement {
       padding: 18px 18px 16px;
       box-shadow:
         0 18px 45px rgba(15, 23, 42, 0.6),
-        0 0 0 1px rgba(15, 23, 42, 0.8);
+        0 0 21px rgba(15, 23, 42, 0.8);
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -169,7 +170,7 @@ export class AdApp extends LitElement {
     textarea:focus {
       border-color: #4f46e5;
       box-shadow:
-        0 0 0 1px rgba(79, 70, 229, 0.8),
+        0 0 1px rgba(79, 70, 229, 0.8),
         0 0 24px rgba(59, 130, 246, 0.4);
       background: rgba(15, 23, 42, 0.95);
     }
@@ -202,14 +203,14 @@ export class AdApp extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      margin-top: 8px;
+      gap: 28px;
+      margin-top: 16px;
     }
 
     .button-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
       flex-wrap: wrap;
     }
 
@@ -236,14 +237,14 @@ export class AdApp extends LitElement {
       color: white;
       box-shadow:
         0 14px 30px rgba(79, 70, 229, 0.5),
-        0 0 0 1px rgba(129, 140, 248, 0.7);
+        0 0 1px rgba(129, 140, 248, 0.7);
     }
 
-    button.primary:hover {
+    button.primary:hover:not(:disabled) {
       transform: translateY(-1px);
       box-shadow:
         0 18px 40px rgba(79, 70, 229, 0.7),
-        0 0 0 1px rgba(129, 140, 248, 0.9);
+        0 0 1px rgba(129, 140, 248, 0.9);
     }
 
     button.secondary {
@@ -256,10 +257,12 @@ export class AdApp extends LitElement {
       background: transparent;
       color: #9ca3af;
       padding-inline: 0;
+      border-radius: 0;
+      border: none;
       box-shadow: none;
     }
 
-    button.text:hover {
+    button.text:hover:not(:disabled) {
       background: rgba(15, 23, 42, 0.6);
       box-shadow: none;
       transform: none;
@@ -344,11 +347,6 @@ export class AdApp extends LitElement {
       text-align: left;
     }
 
-    .placeholder.small {
-      padding: 10px 8px;
-      font-size: 12px;
-    }
-
     .error {
       font-size: 13px;
       color: #fecaca;
@@ -370,7 +368,7 @@ export class AdApp extends LitElement {
       padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 8px;
       max-height: 360px;
       overflow: auto;
     }
@@ -443,6 +441,9 @@ export class AdApp extends LitElement {
   @state() private isLoadingProcesses = false;
   @state() private processesError = '';
 
+  // Stores last structured prompt returned by backend
+  @state() private lastPrompt: any = null;
+
   override firstUpdated(): void {
     this.loadProcesses();
   }
@@ -451,12 +452,14 @@ export class AdApp extends LitElement {
     this.isLoadingProcesses = true;
     this.processesError = '';
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/catalog/processes');
+      const resp = await fetch(
+        'http://localhost:8000/api/v1/catalog/processes',
+      );
       if (!resp.ok) {
         throw new Error(`Backend returned status ${resp.status}`);
       }
       const data = (await resp.json()) as CatalogProcess[];
-      this.processes = [...data].sort((a, b) => b.id - a.id);
+      this.processes = data.sort((a, b) => b.id - a.id);
     } catch (error: unknown) {
       console.error('Failed to load processes', error);
       this.processesError =
@@ -503,24 +506,28 @@ export class AdApp extends LitElement {
                   Existing processes with number of stored versions.
                 </div>
               </div>
+              <button
+                class="text"
+                @click=${this.onEnterCatalogClick}
+                ?disabled=${this.view === 'catalog'}
+              >
+                Open full catalog
+              </button>
             </div>
 
             ${this.renderProcessesPanel()}
-
-            <div class="catalog-actions">
-              <button
-                class="secondary full-width"
-                @click=${this.onEnterCatalogClick}
-              >
-                Enter catalog
-              </button>
-            </div>
           </aside>
 
           <div class="main-column">
             <section class="card">
               <div class="card-header">
-                <div class="card-title">Process description</div>
+                <div>
+                  <div class="card-title">Process description</div>
+                  <div class="card-subtitle">
+                    Name the process, specify domain and describe the flow in
+                    text.
+                  </div>
+                </div>
               </div>
 
               <div class="meta-grid">
@@ -531,7 +538,7 @@ export class AdApp extends LitElement {
                     type="text"
                     .value=${this.processName}
                     @input=${this.onProcessNameChange}
-                    placeholder="e.g. Process"
+                    placeholder="e.g. Course registration"
                     autocomplete="off"
                   />
                 </div>
@@ -542,7 +549,7 @@ export class AdApp extends LitElement {
                     type="text"
                     .value=${this.domain}
                     @input=${this.onDomainChange}
-                    placeholder="e.g. Domain"
+                    placeholder="e.g. University"
                     autocomplete="off"
                   />
                 </div>
@@ -553,7 +560,7 @@ export class AdApp extends LitElement {
                     type="text"
                     .value=${this.versionName}
                     @input=${this.onVersionNameChange}
-                    placeholder="e.g. Version Name"
+                    placeholder="e.g. v1 - initial draft"
                     autocomplete="off"
                   />
                 </div>
@@ -568,8 +575,8 @@ export class AdApp extends LitElement {
                   placeholder="Describe the process step-by-step. Include actors, decisions, and important alternative or error flows."
                 ></textarea>
                 <div class="hint">
-                  Tip: Start from one of the scenarios in your thesis and refine
-                  it into a precise step-by-step description.
+                  Tip: Start from one of the scenarios in your thesis and
+                  refine it into a precise step-by-step description.
                 </div>
               </div>
 
@@ -577,27 +584,23 @@ export class AdApp extends LitElement {
                 <div class="button-row">
                   <button
                     class="primary"
-                    ?disabled=${this.isGenerating || this.isSaving || !this.processText.trim()}
+                    ?disabled=${this.isGenerating ||
+                    this.isSaving ||
+                    !this.processText.trim()}
                     @click=${this.onGenerateClick}
                   >
                     ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
                   </button>
                   <button
                     class="secondary"
-                    ?disabled=${this.isGenerating ||
-                    this.isSaving ||
-                    !this.plantuml.trim() ||
-                    !this.processName.trim() ||
-                    !this.domain.trim()}
+                    ?disabled=${!this.plantuml.trim()}
                     @click=${this.onSaveClick}
                   >
                     ${this.isSaving ? 'Saving…' : 'Save to catalog'}
                   </button>
                   <button
-                    class="secondary"
-                    ?disabled=${this.isGenerating &&
-                    !this.processText.trim() &&
-                    !this.plantuml}
+                    class="text"
+                    ?disabled=${!this.plantuml && !this.processText}
                     @click=${this.onClearClick}
                   >
                     Clear
@@ -605,10 +608,18 @@ export class AdApp extends LitElement {
                 </div>
                 <div class="status">
                   <span
-                    class="status-dot ${this.statusDotClass}"
+                    class="status-dot ${this.errorMessage
+                      ? 'error'
+                      : this.lastSaveSucceeded
+                        ? ''
+                        : 'pending'}"
                     aria-hidden="true"
                   ></span>
-                  ${this.statusText}
+                  ${this.errorMessage
+                    ? 'Last operation failed.'
+                    : this.lastSaveSucceeded
+                      ? 'Last save succeeded.'
+                      : 'Ready. Describe a process and generate a diagram.'}
                 </div>
               </div>
 
@@ -631,9 +642,8 @@ export class AdApp extends LitElement {
               ${this.plantuml
                 ? html`<pre>${this.plantuml}</pre>`
                 : html`<div class="placeholder">
-                    The generated PlantUML code will appear here. You can copy
-                    it into your debugger script or directly to an online
-                    PlantUML renderer.
+                    Generated PlantUML code will appear here after you run
+                    generation.
                   </div>`}
             </section>
           </div>
@@ -650,17 +660,17 @@ export class AdApp extends LitElement {
             <div>
               <div class="badge">
                 <span class="badge-dot"></span>
-                Process catalog
+                UML Activity Catalog
               </div>
-              <h1>Catalog of UML activity diagrams</h1>
+              <h1>Catalog of generated activity diagrams</h1>
             </div>
-            <button class="text" @click=${this.onBackToGeneratorClick}>
-              ← Back to generator
+            <button class="secondary" @click=${this.onBackToGenerateClick}>
+              Back to generator
             </button>
           </div>
           <p class="subtitle">
-            Browse all stored processes and their versions, inspect generated
-            PlantUML code and prepare data for evaluation in your thesis.
+            Browse processes, their versions and inspect PlantUML code for each
+            activity diagram.
           </p>
         </header>
 
@@ -673,161 +683,107 @@ export class AdApp extends LitElement {
     if (this.isLoadingProcesses) {
       return html`<div class="placeholder small">Loading processes…</div>`;
     }
+
     if (this.processesError) {
       return html`<div class="error small">${this.processesError}</div>`;
     }
+
     if (!this.processes.length) {
       return html`<div class="placeholder small">
-        No processes in catalog yet.
+        No processes in the catalog yet. Generate and save your first diagram.
       </div>`;
     }
+
     return html`
       <ul class="process-list">
         ${this.processes.map(
-          (p) => html`<li
-            class="process-item"
-            @click=${() => this.onSelectProcess(p)}
-          >
-            <div class="process-name">${p.name}</div>
-            <div class="process-meta">
-              ${p.domain ?? 'No domain'} ·
-              ${p.versions_count} version${p.versions_count === 1 ? '' : 's'}
-            </div>
-          </li>`
+          (p) => html`
+            <li class="process-item" @click=${() => this.onProcessClick(p)}>
+              <div class="process-name">${p.name}</div>
+              <div class="process-meta">
+                ${p.domain ?? 'No domain'} • ${p.versions_count} version(s)
+              </div>
+            </li>
+          `,
         )}
       </ul>
+      <div class="catalog-actions">
+        <button class="secondary full-width" @click=${this.onEnterCatalogClick}>
+          Enter catalog
+        </button>
+      </div>
     `;
   }
 
-  private get statusText(): string {
-    if (this.errorMessage) {
-      return 'Generation or save failed – check the error message above.';
-    }
-    if (this.isGenerating) {
-      return 'Generating UML activity diagram from your description…';
-    }
-    if (this.isSaving) {
-      return 'Saving diagram to catalog…';
-    }
-    if (this.lastSaveSucceeded) {
-      return 'Diagram saved to catalog.';
-    }
-    if (this.plantuml) {
-      return 'Diagram successfully generated.';
-    }
-    return 'Waiting for your process description.';
-  }
-
-  private get statusDotClass(): string {
-    if (this.errorMessage) return 'error';
-    if (this.isGenerating || this.isSaving) return 'pending';
-    return '';
-  }
-
-  private onProcessNameChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
+  private onProcessNameChange(e: Event): void {
+    const target = e.target as HTMLInputElement;
     this.processName = target.value;
   }
 
-  private onDomainChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
+  private onDomainChange(e: Event): void {
+    const target = e.target as HTMLInputElement;
     this.domain = target.value;
   }
 
-  private onVersionNameChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
+  private onVersionNameChange(e: Event): void {
+    const target = e.target as HTMLInputElement;
     this.versionName = target.value;
   }
 
-  private onTextChange(event: Event): void {
-    const target = event.target as HTMLTextAreaElement;
+  private onTextChange(e: Event): void {
+    const target = e.target as HTMLTextAreaElement;
     this.processText = target.value;
-  }
-
-  private onSelectProcess(process: CatalogProcess): void {
-    this.processName = process.name;
-    this.domain = process.domain ?? '';
-  }
-
-  private onClearClick(): void {
-    if (this.isGenerating || this.isSaving) return;
-    this.processText = '';
-    this.plantuml = '';
-    this.errorMessage = '';
-    this.lastSaveSucceeded = false;
-  }
-
-  private onEnterCatalogClick(): void {
-    this.view = 'catalog';
-  }
-
-  private onBackToGeneratorClick(): void {
-    this.view = 'generate';
   }
 
   private async onGenerateClick(): Promise<void> {
     const name = this.processName.trim();
     const domain = this.domain.trim();
     const version = this.versionName.trim();
-    const text = this.processText.trim();
+    const description = this.processText.trim();
 
-    if (!name || !domain) {
-      this.errorMessage =
-        'Please fill in at least process name and domain before generation.';
-      return;
-    }
-    if (!text) {
-      this.errorMessage = 'Please describe the process before generation.';
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
+
+    if (!name || !domain || !description) {
+      this.errorMessage = 'Process name, domain and text prompt are required.';
       return;
     }
 
     this.isGenerating = true;
-    this.errorMessage = '';
-    this.lastSaveSucceeded = false;
-
-    const lines = text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    const actions =
-      lines.length > 0
-        ? lines.map((line) => ({ actor: 'Author', action: line }))
-        : [{ actor: 'Author', action: text }];
-
-    const payload = {
-      actors: ['Author'],
-      actions,
-      decisions: null,
-      parallel_blocks: null,
-    };
-
-    const params = new URLSearchParams({
-      process_name: name,
-      domain,
-    });
-    if (version) {
-      params.append('version_name', version);
-    }
+    this.lastPrompt = null;
 
     try {
+      const params = new URLSearchParams();
+      params.set('process_name', name);
+      params.set('domain', domain);
+      if (version) {
+        params.set('version_name', version);
+      }
+
       const response = await fetch(
-        `http://localhost:8000/api/v1/generate?${params.toString()}`,
+        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload),
-        }
+          body: JSON.stringify({ description }),
+        },
       );
 
       if (!response.ok) {
-        throw new Error(`Backend returned status ${response.status}`);
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
       }
 
       const data = await response.json();
-      this.plantuml = data.plantuml_code ?? JSON.stringify(data, null, 2);
+      this.plantuml =
+        data.plantuml_code ?? JSON.stringify(data, null, 2);
+      this.lastPrompt = data.prompt ?? null;
     } catch (error: unknown) {
       console.error('Generation failed', error);
       this.errorMessage =
@@ -845,35 +801,31 @@ export class AdApp extends LitElement {
     const version = this.versionName.trim();
     const code = this.plantuml.trim();
 
-    if (!name || !domain) {
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
+
+    if (!name || !domain || !code) {
       this.errorMessage =
-        'Please fill in at least process name and domain before saving.';
-      return;
-    }
-    if (!code) {
-      this.errorMessage =
-        'There is no generated PlantUML diagram to save yet.';
+        'Process name, domain and generated PlantUML code are required to save.';
       return;
     }
 
     this.isSaving = true;
-    this.errorMessage = '';
-    this.lastSaveSucceeded = false;
-
-    const params = new URLSearchParams({
-      process_name: name,
-      domain,
-    });
-    if (version) {
-      params.append('version_name', version);
-    }
-
-    const payload = {
-      plantuml_code: code,
-      prompt: null,
-    };
 
     try {
+      const params = new URLSearchParams();
+      params.set('process_name', name);
+      params.set('domain', domain);
+      if (version) {
+        params.set('version_name', version);
+      }
+
+      const payload = {
+        plantuml_code: code,
+        // Use last prompt returned by backend; fallback to empty object
+        prompt: this.lastPrompt ?? {},
+      };
+
       const response = await fetch(
         `http://localhost:8000/api/v1/catalog/save?${params.toString()}`,
         {
@@ -882,14 +834,18 @@ export class AdApp extends LitElement {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
-        }
+        },
       );
 
       if (!response.ok) {
-        throw new Error(`Backend returned status ${response.status}`);
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
       }
 
-      await response.json();
       this.lastSaveSucceeded = true;
       await this.loadProcesses();
     } catch (error: unknown) {
@@ -901,6 +857,28 @@ export class AdApp extends LitElement {
     } finally {
       this.isSaving = false;
     }
+  }
+
+  private onClearClick(): void {
+    this.processText = '';
+    this.plantuml = '';
+    this.versionName = '';
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
+    this.lastPrompt = null;
+  }
+
+  private onEnterCatalogClick(): void {
+    this.view = 'catalog';
+  }
+
+  private onBackToGenerateClick(): void {
+    this.view = 'generate';
+  }
+
+  private onProcessClick(process: CatalogProcess): void {
+    this.processName = process.name;
+    this.domain = process.domain ?? '';
   }
 }
 

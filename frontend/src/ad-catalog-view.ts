@@ -516,6 +516,7 @@ export class AdCatalogView extends LitElement {
   @state() private editGeneratedPlantuml = '';
   @state() private editError = '';
   @state() private isGenerating = false;
+  @state() private editPromptJson: any = null;
 
   override firstUpdated(): void {
     this.loadProcesses();
@@ -1155,7 +1156,7 @@ ${this.editGeneratedPlantuml}
     const versions = this.processDetail.versions;
 
     // Prefer active version; otherwise newest by created_at.
-    let base =
+    const base =
       versions.find((v) => v.status === 'active') ??
       [...versions].sort(
         (a, b) =>
@@ -1171,6 +1172,7 @@ ${this.editGeneratedPlantuml}
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = base ? base.plantuml_code : '';
+    this.editPromptJson = null;
     this.editError = '';
   }
 
@@ -1185,6 +1187,7 @@ ${this.editGeneratedPlantuml}
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = v.plantuml_code;
+    this.editPromptJson = null;
     this.editError = '';
   }
 
@@ -1193,6 +1196,7 @@ ${this.editGeneratedPlantuml}
     this.editMode = null;
     this.editError = '';
     this.isGenerating = false;
+    this.editPromptJson = null;
   }
 
   // ===== HANDLERS: EDIT FORM =====
@@ -1262,6 +1266,7 @@ ${this.editGeneratedPlantuml}
       const data = await resp.json();
       this.editGeneratedPlantuml = data.plantuml_code ?? '';
       this.editDescriptionOriginal = description;
+      this.editPromptJson = data.prompt ?? null;
     } catch (error: unknown) {
       console.error('Failed to generate diagram from text', error);
       this.editError =
@@ -1316,7 +1321,7 @@ ${this.editGeneratedPlantuml}
 
     const payload = {
       plantuml_code: code,
-      prompt: null,
+      prompt: this.editPromptJson ?? {},
     };
 
     try {
