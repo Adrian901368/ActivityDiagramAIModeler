@@ -546,13 +546,13 @@ export class AdCatalogView extends LitElement {
       const data = (await resp.json()) as CatalogProcess[];
       this.processes = [...data].sort((a, b) => b.id - a.id);
       if (this.processes.length > 0 && this.selectedProcessId === null) {
-          this.onSelectProcess(this.processes[0]);
+        this.onSelectProcess(this.processes[0]);
       } else if (
-          this.selectedProcessId !== null &&
-          !this.processes.some((p) => p.id === this.selectedProcessId)
+        this.selectedProcessId !== null &&
+        !this.processes.some((p) => p.id === this.selectedProcessId)
       ) {
-          this.selectedProcessId = null;
-          this.processDetail = null;
+        this.selectedProcessId = null;
+        this.processDetail = null;
       }
     } catch (error: unknown) {
       console.error('Failed to load processes', error);
@@ -721,7 +721,7 @@ export class AdCatalogView extends LitElement {
             </div>
           </div>
 
-        ${this.renderProcessHeaderActions()}
+          ${this.renderProcessHeaderActions()}
         </div>
 
         ${this.renderProcessDetail()}
@@ -882,7 +882,7 @@ ${v.plantuml_code}
     `;
   }
 
-  // ===== EDIT VIEW (description-based create/update with immediate PlantUML preview) =====
+  // ===== EDIT VIEW =====
 
   private renderEditView() {
     const title =
@@ -947,7 +947,7 @@ ${v.plantuml_code}
           </button>
           <button
             class="primary"
-            @click=${this.onGenerateClick}
+            @click=${this.onEditGenerateClick}
             ?disabled=${this.isGenerating ||
             !this.editDescriptionCurrent.trim() ||
             this.editMode === null ||
@@ -969,12 +969,26 @@ ${v.plantuml_code}
         click <strong>Generate diagram</strong>.
       </div>`;
     }
+    const saveLabel =
+      this.editMode === 'create' ? 'Save as new version' : 'Save draft version';
     return html`
       <div style="margin-top: 10px;">
         <div class="card-subtitle">Generated PlantUML for this version</div>
         <pre>
 ${this.editGeneratedPlantuml}
         </pre>
+        <div class="edit-actions">
+          <button
+            class="primary"
+            @click=${this.onEditSaveClick}
+            ?disabled=${this.isGenerating ||
+            !this.editGeneratedPlantuml.trim() ||
+            this.editMode === null ||
+            this.editProcessId === null}
+          >
+            ${saveLabel}
+          </button>
+        </div>
       </div>
     `;
   }
@@ -1080,9 +1094,7 @@ ${this.editGeneratedPlantuml}
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${
-          v.version_number
-        }`,
+        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}`,
         { method: 'DELETE' }
       );
       if (!resp.ok) {
@@ -1112,9 +1124,7 @@ ${this.editGeneratedPlantuml}
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${
-          v.version_number
-        }/publish`,
+        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}/publish`,
         { method: 'PUT' }
       );
       if (!resp.ok) {
@@ -1135,34 +1145,34 @@ ${this.editGeneratedPlantuml}
 
   // ===== HANDLERS: CREATE / UPDATE VERSION (NAVIGATION) =====
 
-private onCreateVersionClick(): void {
-  if (!this.processDetail || !this.processDetail.versions.length) {
-    this.detailError =
-      'Cannot create new version – process detail or versions are not loaded.';
-    return;
+  private onCreateVersionClick(): void {
+    if (!this.processDetail || !this.processDetail.versions.length) {
+      this.detailError =
+        'Cannot create new version – process detail or versions are not loaded.';
+      return;
+    }
+
+    const versions = this.processDetail.versions;
+
+    // Prefer active version; otherwise newest by created_at.
+    let base =
+      versions.find((v) => v.status === 'active') ??
+      [...versions].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0];
+
+    this.subView = 'create';
+    this.editMode = 'create';
+    this.editProcessId = this.processDetail.process_id;
+    this.editProcessName = this.processDetail.process_name;
+    this.editVersionNumber = null;
+    this.editVersionLabel = '';
+    this.editDescriptionOriginal = '';
+    this.editDescriptionCurrent = '';
+    this.editGeneratedPlantuml = base ? base.plantuml_code : '';
+    this.editError = '';
   }
-
-  const versions = this.processDetail.versions;
-
-  // Prefer active version; otherwise newest by created_at.
-  let base =
-    versions.find((v) => v.status === 'active') ??
-    [...versions].sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    )[0];
-
-  this.subView = 'create';
-  this.editMode = 'create';
-  this.editProcessId = this.processDetail.process_id;
-  this.editProcessName = this.processDetail.process_name;
-  this.editVersionNumber = null;
-  this.editVersionLabel = '';
-  this.editDescriptionOriginal = '';
-  this.editDescriptionCurrent = '';
-  this.editGeneratedPlantuml = base ? base.plantuml_code : '';
-  this.editError = '';
-}
 
   private onUpdateVersionClick(v: CatalogVersion): void {
     if (v.status !== 'draft') return;
@@ -1202,8 +1212,11 @@ private onCreateVersionClick(): void {
     this.editError = '';
   }
 
-  private async onGenerateClick(): Promise<void> {
-    if (!this.editMode || this.editProcessId === null) return;
+  // Generate only (preview) – uses /generate-from-text, does not save
+  private async onEditGenerateClick(): Promise<void> {
+    if (!this.editMode || this.editProcessId === null || !this.processDetail) {
+      return;
+    }
 
     const description = this.editDescriptionCurrent.trim();
     if (!description) {
@@ -1211,12 +1224,68 @@ private onCreateVersionClick(): void {
       return;
     }
 
+    const processName = this.processDetail.process_name;
+    const domain = this.processDetail.domain ?? '';
+
     this.isGenerating = true;
     this.editError = '';
 
-    const payload: Record<string, unknown> = {
-      description,
-    };
+    const payload = { description };
+
+    const params = new URLSearchParams({
+      process_name: processName,
+      domain,
+    });
+    if (this.editVersionLabel.trim()) {
+      params.append('version_name', this.editVersionLabel.trim());
+    }
+
+    try {
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(
+          `Backend returned status ${resp.status}${
+            text ? ` – ${text.slice(0, 200)}` : ''
+          }`
+        );
+      }
+      const data = await resp.json();
+      this.editGeneratedPlantuml = data.plantuml_code ?? '';
+      this.editDescriptionOriginal = description;
+    } catch (error: unknown) {
+      console.error('Failed to generate diagram from text', error);
+      this.editError =
+        error instanceof Error
+          ? `Failed to generate diagram: ${error.message}`
+          : 'Failed to generate diagram.';
+    } finally {
+      this.isGenerating = false;
+    }
+  }
+
+  // Save generated PlantUML as new version or update draft
+  private async onEditSaveClick(): Promise<void> {
+    if (!this.editMode || this.editProcessId === null) return;
+
+    const code = this.editGeneratedPlantuml.trim();
+    if (!code) {
+      this.editError =
+        'No generated PlantUML available. Please generate the diagram first.';
+      return;
+    }
+
+    this.isGenerating = true;
+    this.editError = '';
 
     const params = new URLSearchParams();
     if (this.editVersionLabel.trim()) {
@@ -1245,6 +1314,11 @@ private onCreateVersionClick(): void {
       method = 'PUT';
     }
 
+    const payload = {
+      plantuml_code: code,
+      prompt: null,
+    };
+
     try {
       const resp = await fetch(url, {
         method,
@@ -1262,28 +1336,24 @@ private onCreateVersionClick(): void {
         );
       }
 
-      const version = (await resp.json()) as CatalogVersion; // response_model in backend [file:99][file:103]
+      const version = (await resp.json()) as CatalogVersion;
 
-      // Update local edit state from response
       this.editGeneratedPlantuml = version.plantuml_code;
       this.editVersionNumber = version.version_number;
       this.editVersionLabel = version.version_name;
-      this.editDescriptionOriginal = description;
 
-      // After first create, treat this view as update of that version
       if (this.editMode === 'create') {
         this.editMode = 'update';
       }
 
-      const processId = version.process_id;
-      await this.loadProcessDetail(processId);
+      await this.loadProcessDetail(version.process_id);
       await this.loadProcesses();
     } catch (error: unknown) {
-      console.error('Failed to save/generate version', error);
+      console.error('Failed to save version', error);
       this.editError =
         error instanceof Error
-          ? `Failed to generate version: ${error.message}`
-          : 'Failed to generate version.';
+          ? `Failed to save version: ${error.message}`
+          : 'Failed to save version.';
     } finally {
       this.isGenerating = false;
     }
