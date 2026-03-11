@@ -210,6 +210,7 @@ export class AdApp extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
 
     button {
@@ -433,8 +434,10 @@ export class AdApp extends LitElement {
   @state() private processText = '';
 
   @state() private isGenerating = false;
+  @state() private isSaving = false;
   @state() private plantuml = '';
   @state() private errorMessage = '';
+  @state() private lastSaveSucceeded = false;
 
   @state() private processes: CatalogProcess[] = [];
   @state() private isLoadingProcesses = false;
@@ -574,10 +577,21 @@ export class AdApp extends LitElement {
                 <div class="button-row">
                   <button
                     class="primary"
-                    ?disabled=${this.isGenerating || !this.processText.trim()}
+                    ?disabled=${this.isGenerating || this.isSaving || !this.processText.trim()}
                     @click=${this.onGenerateClick}
                   >
                     ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
+                  </button>
+                  <button
+                    class="secondary"
+                    ?disabled=${this.isGenerating ||
+                    this.isSaving ||
+                    !this.plantuml.trim() ||
+                    !this.processName.trim() ||
+                    !this.domain.trim()}
+                    @click=${this.onSaveClick}
+                  >
+                    ${this.isSaving ? 'Saving…' : 'Save to catalog'}
                   </button>
                   <button
                     class="secondary"
@@ -687,10 +701,16 @@ export class AdApp extends LitElement {
 
   private get statusText(): string {
     if (this.errorMessage) {
-      return 'Generation failed – check the error message above.';
+      return 'Generation or save failed – check the error message above.';
     }
     if (this.isGenerating) {
       return 'Generating UML activity diagram from your description…';
+    }
+    if (this.isSaving) {
+      return 'Saving diagram to catalog…';
+    }
+    if (this.lastSaveSucceeded) {
+      return 'Diagram saved to catalog.';
     }
     if (this.plantuml) {
       return 'Diagram successfully generated.';
@@ -700,7 +720,7 @@ export class AdApp extends LitElement {
 
   private get statusDotClass(): string {
     if (this.errorMessage) return 'error';
-    if (this.isGenerating) return 'pending';
+    if (this.isGenerating || this.isSaving) return 'pending';
     return '';
   }
 
@@ -730,10 +750,11 @@ export class AdApp extends LitElement {
   }
 
   private onClearClick(): void {
-    if (this.isGenerating) return;
+    if (this.isGenerating || this.isSaving) return;
     this.processText = '';
     this.plantuml = '';
     this.errorMessage = '';
+    this.lastSaveSucceeded = false;
   }
 
   private onEnterCatalogClick(): void {
@@ -762,6 +783,7 @@ export class AdApp extends LitElement {
 
     this.isGenerating = true;
     this.errorMessage = '';
+    this.lastSaveSucceeded = false;
 
     const lines = text
       .split('\n')
@@ -806,7 +828,6 @@ export class AdApp extends LitElement {
 
       const data = await response.json();
       this.plantuml = data.plantuml_code ?? JSON.stringify(data, null, 2);
-      this.loadProcesses();
     } catch (error: unknown) {
       console.error('Generation failed', error);
       this.errorMessage =
@@ -815,6 +836,70 @@ export class AdApp extends LitElement {
           : 'Generation failed due to an unknown error.';
     } finally {
       this.isGenerating = false;
+    }
+  }
+
+  private async onSaveClick(): Promise<void> {
+    const name = this.processName.trim();
+    const domain = this.domain.trim();
+    const version = this.versionName.trim();
+    const code = this.plantuml.trim();
+
+    if (!name || !domain) {
+      this.errorMessage =
+        'Please fill in at least process name and domain before saving.';
+      return;
+    }
+    if (!code) {
+      this.errorMessage =
+        'There is no generated PlantUML diagram to save yet.';
+      return;
+    }
+
+    this.isSaving = true;
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
+
+    const params = new URLSearchParams({
+      process_name: name,
+      domain,
+    });
+    if (version) {
+      params.append('version_name', version);
+    }
+
+    const payload = {
+      plantuml_code: code,
+      prompt: null,
+    };
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/v1/catalog/save?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Backend returned status ${response.status}`);
+      }
+
+      await response.json();
+      this.lastSaveSucceeded = true;
+      await this.loadProcesses();
+    } catch (error: unknown) {
+      console.error('Save failed', error);
+      this.errorMessage =
+        error instanceof Error
+          ? `Save failed: ${error.message}`
+          : 'Save failed due to an unknown error.';
+    } finally {
+      this.isSaving = false;
     }
   }
 }
