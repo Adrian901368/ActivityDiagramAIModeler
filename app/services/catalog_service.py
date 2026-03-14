@@ -1,3 +1,4 @@
+# app/services/catalog_service.py
 from typing import Dict, Optional
 
 from sqlalchemy import func
@@ -15,7 +16,7 @@ def get_or_create_process(
     """
     Find existing Process by (name, domain) or create a new one.
 
-    This helper is useful for text-based /generate endpoint, where we want
+    This helper is useful for generation endpoints, where we want
     to reuse a process if it already exists in the catalog.
     """
     process = (
@@ -41,6 +42,7 @@ def save_process_version(
     llm_model: str,
     tokens_used: int | None = None,
     version_name: str | None = None,
+    image_path: str | None = None,
 ) -> Version:
     """
     Find or create Process by (name, domain) and save a new Version.
@@ -58,6 +60,7 @@ def save_process_version(
         .scalar()
         or 0
     )
+
     new_number = latest_number + 1
 
     # 3) generate default version_name if not provided
@@ -74,6 +77,7 @@ def save_process_version(
         llm_model=llm_model,
         tokens_used=tokens_used,
         status="draft",
+        image_path=image_path,
     )
 
     db.add(version)
@@ -146,6 +150,7 @@ def create_new_version_for_process(
     llm_model: str | None,
     tokens_used: int | None = None,
     version_name: str = "",
+    image_path: str | None = None,
 ) -> Version:
     """
     Create a new Version row for an existing process.
@@ -175,6 +180,7 @@ def create_new_version_for_process(
         llm_model=llm_model or "",
         tokens_used=tokens_used,
         status="draft",
+        image_path=image_path,
     )
 
     db.add(new_version)
@@ -260,9 +266,10 @@ def update_draft_version(
     plantuml_code: str,
     prompt_dict: dict | None,
     version_name: str = "",
+    image_path: str | None = None,
 ) -> Version | None:
     """
-    Update PlantUML (and optional prompt + version_name) for a version in 'draft'.
+    Update PlantUML (and optional prompt + version_name + image_path) for a version in 'draft'.
 
     - No version -> returns None.
     - Status != 'draft' -> raises ValueError.
@@ -285,6 +292,7 @@ def update_draft_version(
     version.plantuml_code = plantuml_code
     version.prompt = prompt_dict or {}
     version.version_name = version_name
+    version.image_path = image_path
 
     db.commit()
     db.refresh(version)
