@@ -1,3 +1,4 @@
+# app/database/models.py
 from datetime import datetime
 
 from sqlalchemy import (
@@ -16,9 +17,10 @@ Base = declarative_base()
 
 class Process(Base):
     """
-    represents 1 process.
+    Represents a single business process.
 
-    Table `processes` SQLite:
+    Table `processes` (SQLite):
+
     - id INTEGER PRIMARY KEY
     - name VARCHAR(255) UNIQUE NOT NULL
     - domain VARCHAR(100) NULL
@@ -42,17 +44,21 @@ class Process(Base):
 
 class Version(Base):
     """
-    Table `versions` by actual SQLite:
+    Represents a single version of a process diagram.
+
+    Table `versions` (SQLite):
+
     - id INTEGER PRIMARY KEY
     - process_id INTEGER NOT NULL (FK -> processes.id)
     - version_number INTEGER NOT NULL
-    - version_name VARCHAR NULL / "" (ľudský názov verzie)
+    - version_name VARCHAR NULL / "" (human‑readable version label)
     - plantuml_code TEXT NOT NULL
-    - prompt JSON NOT NULL (štruktúrovaný vstup ProcessPromptModel)
+    - prompt JSON NOT NULL (structured input / metadata)
     - llm_model VARCHAR(100) NOT NULL
     - tokens_used INTEGER NULL
     - status VARCHAR(20) NOT NULL DEFAULT 'draft'
     - created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    - image_path VARCHAR(255) NULL (path to rendered PNG diagram, optional)
     """
 
     __tablename__ = "versions"
@@ -71,5 +77,8 @@ class Version(Base):
 
     status = Column(String(20), nullable=False, default="draft")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # New optional field for rendered PNG location (filesystem path or similar).
+    image_path = Column(String(255), nullable=True)
 
     process = relationship("Process", back_populates="versions")

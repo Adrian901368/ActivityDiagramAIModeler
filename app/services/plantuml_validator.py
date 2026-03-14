@@ -1,6 +1,8 @@
+# app/services/plantuml_validator.py
 from typing import Tuple, Optional
 import os
 import re
+import hashlib
 import requests
 
 PLANTUML_SERVER_BASE = os.getenv(
@@ -92,3 +94,43 @@ def validate_plantuml(code: str) -> Tuple[bool, Optional[str]]:
 
     # 4xx or other suspicious codes -> treat as error
     return False, f"PlantUML server HTTP {resp.status_code}"
+
+
+def render_plantuml_to_png(code: str, output_dir: str = "generated_diagrams") -> str:
+    """
+    Render valid PlantUML code to PNG using PlantUML server and save it to disk.
+
+    Returns filesystem path to the saved PNG file.
+
+    Raises:
+    - ValueError: if @startuml/@enduml are missing in the input code.
+    - RuntimeError: if the PlantUML server or local file I/O fails.
+    """
+    if not code or "@startuml" not in code or "@enduml" not in code:
+        raise ValueError("Missing @startuml/@enduml in PlantUML code.")
+
+    encoded = _encode_hex(code)
+    base = PLANTUML_SERVER_BASE.rstrip("/")
+    url = f"{base}/png/{encoded}"
+
+    try:
+        resp = requests.get(url, timeout=20)
+    except Exception as exc:
+        raise RuntimeError(f"PlantUML server error: {exc}") from exc
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"PlantUML server HTTP {resp.status_code}")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    digest = hashlib.sha1(code.encode("utf-8")).hexdigest()[:16]
+    filename = f"diagram_{digest}.png"
+    filepath = os.path.join(output_dir, filename)
+
+    try:
+        with open(filepath, "wb") as f:
+            f.write(resp.content)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to write PNG file: {exc}") from exc
+
+    return filepath
