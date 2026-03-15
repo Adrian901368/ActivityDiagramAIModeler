@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  # CORS for frontend
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.core.config import settings
 from app.api.v1.endpoints import router as v1_router
@@ -25,6 +27,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Serve generated PNG diagrams as static files
+DIAGRAMS_DIR = os.getenv("DIAGRAMS_DIR", "generated_diagrams")
+os.makedirs(DIAGRAMS_DIR, exist_ok=True)
+app.mount(
+    "/generated_diagrams",
+    StaticFiles(directory=DIAGRAMS_DIR),
+    name="generated_diagrams",
 )
 
 

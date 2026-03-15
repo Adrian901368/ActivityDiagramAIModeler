@@ -533,6 +533,8 @@ async def save_version_from_structure(
         tokens_used=version.tokens_used,
         status=version.status,
         plantuml_code=version.plantuml_code,
+        image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -632,6 +634,8 @@ async def save_generated_version(
         tokens_used=version.tokens_used,
         status=version.status,
         plantuml_code=version.plantuml_code,
+        image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -712,6 +716,8 @@ async def get_process_catalog(
             tokens_used=v.tokens_used,
             status=v.status,
             plantuml_code=v.plantuml_code,
+            image_path=v.image_path,
+            prompt=v.prompt,
         )
         for v in versions
     ]
@@ -814,6 +820,8 @@ async def create_process_version(
         tokens_used=version.tokens_used,
         status=version.status,
         plantuml_code=version.plantuml_code,
+        image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -938,6 +946,8 @@ async def update_draft_process_version(
         tokens_used=updated.tokens_used,
         status=updated.status,
         plantuml_code=updated.plantuml_code,
+        image_path=updated.image_path,
+        prompt=updated.prompt,
     )
 
 
@@ -985,7 +995,6 @@ async def delete_process_version(
         process_id=process_id,
         version_number=version_number,
     )
-
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -1064,4 +1073,6 @@ async def publish_process_version(
         tokens_used=version.tokens_used,
         status=version.status,
         plantuml_code=version.plantuml_code,
+        image_path=version.image_path,
+        prompt=version.prompt,
     )
