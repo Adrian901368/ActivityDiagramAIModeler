@@ -443,6 +443,8 @@ export class AdApp extends LitElement {
 
   // Stores last structured prompt returned by backend
   @state() private lastPrompt: any = null;
+  // Editable JSON representation of the structured prompt
+  @state() private promptText = '';
 
   override firstUpdated(): void {
     this.loadProcesses();
@@ -478,6 +480,9 @@ export class AdApp extends LitElement {
   }
 
   private renderGenerateView() {
+    const promptPlaceholder =
+      '{\n  "process_name": "...",\n  "domain": "...",\n  "actors": [...],\n  "actions": [...],\n  "decisions": [...]\n}';
+
     return html`
       <div class="page">
         <header>
@@ -631,11 +636,25 @@ export class AdApp extends LitElement {
             <section class="card">
               <div class="diagram-header">
                 <div>
-                  <div class="diagram-title">Generated PlantUML</div>
+                  <div class="diagram-title">Prompt JSON & Generated PlantUML</div>
                   <div class="diagram-meta">
-                    Ready to be sent to the PlantUML renderer or stored as a
-                    catalog version.
+                    Inspect or edit the structured JSON before saving, and view
+                    the PlantUML code.
                   </div>
+                </div>
+              </div>
+
+              <div style="margin-bottom: 10px;">
+                <label for="promptJson">Prompt JSON (optional, editable)</label>
+                <textarea
+                  id="promptJson"
+                  .value=${this.promptText}
+                  @input=${this.onPromptJsonChange}
+                  placeholder=${promptPlaceholder}
+                ></textarea>
+                <div class="hint">
+                  You can adjust the structured JSON before saving. If left
+                  empty, the last generated prompt (if any) will be used.
                 </div>
               </div>
 
@@ -735,6 +754,11 @@ export class AdApp extends LitElement {
     this.processText = target.value;
   }
 
+  private onPromptJsonChange(e: Event): void {
+    const target = e.target as HTMLTextAreaElement;
+    this.promptText = target.value;
+  }
+
   private async onGenerateClick(): Promise<void> {
     const name = this.processName.trim();
     const domain = this.domain.trim();
@@ -751,6 +775,7 @@ export class AdApp extends LitElement {
 
     this.isGenerating = true;
     this.lastPrompt = null;
+    this.promptText = '';
 
     try {
       const params = new URLSearchParams();
@@ -784,6 +809,8 @@ export class AdApp extends LitElement {
       this.plantuml =
         data.plantuml_code ?? JSON.stringify(data, null, 2);
       this.lastPrompt = data.prompt ?? null;
+      this.promptText =
+        data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
     } catch (error: unknown) {
       console.error('Generation failed', error);
       this.errorMessage =
@@ -810,6 +837,21 @@ export class AdApp extends LitElement {
       return;
     }
 
+    // Validate / choose prompt JSON before we start saving
+    let promptForSave: any = {};
+    if (this.promptText.trim()) {
+      try {
+        promptForSave = JSON.parse(this.promptText);
+      } catch (err) {
+        this.errorMessage =
+          'Prompt JSON is not valid JSON. Please fix it or clear the field.';
+        return;
+      }
+    } else {
+      // If user left JSON empty, fall back to lastPrompt or empty object
+      promptForSave = this.lastPrompt ?? {};
+    }
+
     this.isSaving = true;
 
     try {
@@ -822,8 +864,7 @@ export class AdApp extends LitElement {
 
       const payload = {
         plantuml_code: code,
-        // Use last prompt returned by backend; fallback to empty object
-        prompt: this.lastPrompt ?? {},
+        prompt: promptForSave,
       };
 
       const response = await fetch(
@@ -866,6 +907,7 @@ export class AdApp extends LitElement {
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
     this.lastPrompt = null;
+    this.promptText = '';
   }
 
   private onEnterCatalogClick(): void {

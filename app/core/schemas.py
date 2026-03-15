@@ -1,7 +1,7 @@
 # app/core/schemas.py
 from typing import List, Optional
-
 from datetime import datetime
+
 from pydantic import (
     BaseModel,
     Field,
@@ -15,6 +15,7 @@ class Action(BaseModel):
     """
     Single action in the process.
     """
+
     actor: str = Field(
         ...,
         min_length=1,
@@ -40,6 +41,7 @@ class Decision(BaseModel):
     """
     Decision (if-then-else) in the process.
     """
+
     condition: str = Field(
         ...,
         min_length=1,
@@ -71,10 +73,12 @@ class ParallelBlock(BaseModel):
     """
     Actions that are executed in parallel (fork/join).
     """
+
     actions: List[Action] = Field(
         ...,
         min_length=2,
         max_length=5,
+        description="Actions that are executed in parallel",
     )
 
 
@@ -84,6 +88,7 @@ class ProcessStructureInput(BaseModel):
 
     Does NOT contain process_name/domain – these come from query parameters.
     """
+
     actors: List[str] = Field(
         ...,
         min_length=1,
@@ -132,24 +137,32 @@ class ProcessStructureInput(BaseModel):
         """
         actor_set = {a.strip() for a in self.actors}
         unknown_actors = sorted(
-            {action.actor for action in self.actions if action.actor not in actor_set}
+            {
+                action.actor
+                for action in self.actions
+                if action.actor not in actor_set
+            }
         )
+
         if unknown_actors:
             raise ValueError(
                 f"Actions reference unknown actors: {', '.join(unknown_actors)}"
             )
+
         return self
 
 
 class GenerateResponse(BaseModel):
     """
-    Response model for the /generate endpoint.
+    Response model for the /generate and /generate-from-text endpoints.
     """
+
     status: str = Field(default="success")
     plantuml_code: str = Field(..., description="Generated PlantUML code")
     process_name: str
     tokens_used: Optional[int] = None
     model_used: str
+    # Structured JSON (prompt) that was used to generate the diagram
     prompt: dict | None = None
 
 
@@ -157,12 +170,18 @@ class ErrorResponse(BaseModel):
     """
     Error response model.
     """
+
     status: str = Field(default="error")
     error: str
     details: Optional[str] = None
 
 
 class CatalogVersion(BaseModel):
+    """
+    Single stored version of a process in the catalog.
+    Mirrors app.database.models.Version.
+    """
+
     id: int
     process_id: int
     version_number: int
@@ -172,6 +191,10 @@ class CatalogVersion(BaseModel):
     tokens_used: Optional[int] = None
     status: str
     plantuml_code: str
+    # Relative or absolute path to rendered PNG diagram
+    image_path: str | None = None
+    # Stored prompt JSON (structured input) for this version
+    prompt: dict | None = None
 
 
 class CatalogProcessDetail(BaseModel):
@@ -187,10 +210,16 @@ class ProcessInCatalog(BaseModel):
     domain: str | None = None
     versions_count: int
 
-    # Pydantic v2-style configuration
-    model_config = ConfigDict(from_attributes=True)
+
+# Pydantic v2-style configuration for ORM models
+model_config = ConfigDict(from_attributes=True)
 
 
 class NewVersionInput(BaseModel):
+    """
+    Payload for creating or updating a version from already generated PlantUML.
+    """
+
     plantuml_code: str
+    # Structured JSON that was used to generate this PlantUML (optional)
     prompt: dict | None = None

@@ -18,6 +18,9 @@ interface CatalogVersion {
   tokens_used: number | null;
   status: string;
   plantuml_code: string;
+  image_path: string | null;
+  // Structured JSON prompt stored with this version (can be null for old data)
+  prompt: Record<string, unknown> | null;
 }
 
 interface CatalogProcessDetail {
@@ -128,7 +131,7 @@ export class AdCatalogView extends LitElement {
 
     textarea {
       width: 100%;
-      min-height: 260px;
+      min-height: 140px;
       resize: vertical;
       background: rgba(15, 23, 42, 0.9);
       border-radius: 10px;
@@ -448,6 +451,23 @@ export class AdCatalogView extends LitElement {
       margin-top: 8px;
     }
 
+    .diagram-preview {
+      margin-top: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      padding: 8px;
+      background: rgba(15, 23, 42, 0.9);
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .diagram-preview img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+
     .edit-header {
       display: flex;
       align-items: center;
@@ -517,6 +537,7 @@ export class AdCatalogView extends LitElement {
   @state() private editError = '';
   @state() private isGenerating = false;
   @state() private editPromptJson: any = null;
+  @state() private editPromptText = '';
 
   override firstUpdated(): void {
     this.loadProcesses();
@@ -753,7 +774,6 @@ export class AdCatalogView extends LitElement {
       </div>
     `;
   }
-
   private renderProcessDetail() {
     if (this.isLoadingDetail) {
       return html`<div class="placeholder">Loading process detail…</div>`;
@@ -831,7 +851,7 @@ export class AdCatalogView extends LitElement {
               class="tiny-btn"
               @click=${() => this.onTogglePlantuml(v.id)}
             >
-              ${this.expandedVersionId === v.id ? 'Hide' : 'Show'} code
+              ${this.expandedVersionId === v.id ? 'Hide' : 'Show'} detail
             </button>
             ${canUpdate
               ? html`<button
@@ -862,6 +882,23 @@ export class AdCatalogView extends LitElement {
     `;
   }
 
+  private getDiagramUrl(v: CatalogVersion): string | null {
+    if (!v.image_path) return null;
+    if (
+      v.image_path.startsWith('http://') ||
+      v.image_path.startsWith('https://')
+    ) {
+      return v.image_path;
+    }
+    const cleaned = v.image_path.replace(/^\/+/, '');
+    // Adjust this mapping if backend serves diagrams under a different prefix.
+    return `http://localhost:8000/${cleaned}`;
+  }
+
+  private onOpenDiagramClick(url: string): void {
+    window.open(url, '_blank', 'noopener');
+  }
+
   private renderExpandedPlantuml() {
     if (
       !this.processDetail ||
@@ -876,10 +913,49 @@ export class AdCatalogView extends LitElement {
     );
     if (!v) return null;
 
+    const diagramUrl = this.getDiagramUrl(v);
+    const promptPretty =
+      v.prompt != null ? JSON.stringify(v.prompt, null, 2) : null;
+
     return html`
-      <pre>
+      <div style="margin-top: 8px;">
+        <div class="card-subtitle">PlantUML code for selected version</div>
+        <pre>
 ${v.plantuml_code}
-      </pre>
+        </pre>
+        ${diagramUrl
+          ? html`
+              <div class="edit-actions" style="justify-content: flex-start;">
+                <button
+                  class="secondary"
+                  @click=${() => this.onOpenDiagramClick(diagramUrl)}
+                >
+                  Open diagram
+                </button>
+              </div>
+              <div class="diagram-preview">
+                <img src=${diagramUrl} alt="UML activity diagram" />
+              </div>
+            `
+          : html`
+              <div class="placeholder small" style="margin-top: 8px;">
+                No rendered PNG diagram available for this version (image_path
+                is empty).
+              </div>
+            `}
+
+        <div style="margin-top: 10px;">
+          <div class="card-subtitle">Prompt JSON for selected version</div>
+          ${promptPretty
+            ? html`<pre>
+${promptPretty}
+          </pre>`
+            : html`<div class="placeholder small" style="margin-top: 4px;">
+                No prompt JSON stored for this version (prompt is null or
+                empty).
+              </div>`}
+        </div>
+      </div>
     `;
   }
 
@@ -893,6 +969,9 @@ ${v.plantuml_code}
         ? 'Provide a refined text description of the process. The backend will regenerate the PlantUML diagram for this new version.'
         : 'Update the text description for this draft version. PlantUML will be regenerated on the backend from your description.';
     const processName = this.editProcessName || 'Unknown process';
+
+    const promptPlaceholder =
+      '{\n  "process_name": "...",\n  "domain": "...",\n  "actors": [...],\n  "actions": [...],\n  "decisions": [...]\n}';
 
     return html`
       <section class="card">
@@ -932,6 +1011,16 @@ ${v.plantuml_code}
             .value=${this.editDescriptionCurrent}
             @input=${this.onEditDescriptionChange}
             placeholder="Describe the process step-by-step for this version. The backend will regenerate the UML Activity diagram from this description."
+          ></textarea>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label for="editPromptJson">Prompt JSON (optional, editable)</label>
+          <textarea
+            id="editPromptJson"
+            .value=${this.editPromptText}
+            @input=${this.onEditPromptJsonChange}
+            placeholder=${promptPlaceholder}
           ></textarea>
         </div>
 
@@ -1173,6 +1262,7 @@ ${this.editGeneratedPlantuml}
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = base ? base.plantuml_code : '';
     this.editPromptJson = null;
+    this.editPromptText = '';
     this.editError = '';
   }
 
@@ -1187,7 +1277,9 @@ ${this.editGeneratedPlantuml}
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = v.plantuml_code;
-    this.editPromptJson = null;
+    this.editPromptJson = v.prompt ?? null;
+    this.editPromptText =
+      v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
     this.editError = '';
   }
 
@@ -1197,6 +1289,7 @@ ${this.editGeneratedPlantuml}
     this.editError = '';
     this.isGenerating = false;
     this.editPromptJson = null;
+    this.editPromptText = '';
   }
 
   // ===== HANDLERS: EDIT FORM =====
@@ -1209,6 +1302,11 @@ ${this.editGeneratedPlantuml}
   private onEditDescriptionChange(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.editDescriptionCurrent = target.value;
+  }
+
+  private onEditPromptJsonChange(event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    this.editPromptText = target.value;
   }
 
   private onRevertEditClick(): void {
@@ -1267,6 +1365,8 @@ ${this.editGeneratedPlantuml}
       this.editGeneratedPlantuml = data.plantuml_code ?? '';
       this.editDescriptionOriginal = description;
       this.editPromptJson = data.prompt ?? null;
+      this.editPromptText =
+        data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
     } catch (error: unknown) {
       console.error('Failed to generate diagram from text', error);
       this.editError =
@@ -1287,6 +1387,19 @@ ${this.editGeneratedPlantuml}
       this.editError =
         'No generated PlantUML available. Please generate the diagram first.';
       return;
+    }
+
+    // If user edited JSON, validate it before sending
+    if (this.editPromptText.trim()) {
+      try {
+        this.editPromptJson = JSON.parse(this.editPromptText);
+      } catch (err) {
+        this.editError =
+          'Prompt JSON is not valid JSON. Please fix it or clear the field.';
+        return;
+      }
+    } else {
+      this.editPromptJson = {};
     }
 
     this.isGenerating = true;
@@ -1346,6 +1459,9 @@ ${this.editGeneratedPlantuml}
       this.editGeneratedPlantuml = version.plantuml_code;
       this.editVersionNumber = version.version_number;
       this.editVersionLabel = version.version_name;
+      this.editPromptJson = version.prompt ?? null;
+      this.editPromptText =
+        version.prompt != null ? JSON.stringify(version.prompt, null, 2) : '';
 
       if (this.editMode === 'create') {
         this.editMode = 'update';
