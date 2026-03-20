@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import './ad-catalog-view'; // catalog screen
+import './ad-canvas-editor'; // visual canvas editor
 
 interface CatalogProcess {
   id: number;
@@ -443,7 +444,7 @@ export class AdApp extends LitElement {
 
   // Stores last structured prompt returned by backend
   @state() private lastPrompt: any = null;
-  // Editable JSON representation of the structured prompt
+  // Editable JSON representation of the structured prompt (or canvas structure)
   @state() private promptText = '';
 
   override firstUpdated(): void {
@@ -653,8 +654,8 @@ export class AdApp extends LitElement {
                   placeholder=${promptPlaceholder}
                 ></textarea>
                 <div class="hint">
-                  You can adjust the structured JSON before saving. If left
-                  empty, the last generated prompt (if any) will be used.
+                  You can adjust the structured JSON before saving. Changes made
+                  in the canvas editor below will also update this JSON.
                 </div>
               </div>
 
@@ -664,6 +665,29 @@ export class AdApp extends LitElement {
                     Generated PlantUML code will appear here after you run
                     generation.
                   </div>`}
+            </section>
+
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Visual canvas editor (beta)</div>
+                  <div class="card-subtitle">
+                    Drag UML activity nodes between swimlanes and reorder them
+                    visually. The structure is synced into the JSON above.
+                  </div>
+                </div>
+              </div>
+
+              <ad-canvas-editor
+                @structure-change=${this.onCanvasStructureChange}
+              ></ad-canvas-editor>
+
+              <div class="hint">
+                Use the toolbar inside the canvas to add actions and arrange
+                them. The editor emits a structured representation compatible
+                with your backend model, which is mirrored in the JSON textarea
+                above.
+              </div>
             </section>
           </div>
         </div>
@@ -759,68 +783,108 @@ export class AdApp extends LitElement {
     this.promptText = target.value;
   }
 
-  private async onGenerateClick(): Promise<void> {
-    const name = this.processName.trim();
-    const domain = this.domain.trim();
-    const version = this.versionName.trim();
-    const description = this.processText.trim();
-
-    this.errorMessage = '';
-    this.lastSaveSucceeded = false;
-
-    if (!name || !domain || !description) {
-      this.errorMessage = 'Process name, domain and text prompt are required.';
-      return;
-    }
-
-    this.isGenerating = true;
-    this.lastPrompt = null;
-    this.promptText = '';
-
+  private onCanvasStructureChange(e: CustomEvent): void {
     try {
-      const params = new URLSearchParams();
-      params.set('process_name', name);
-      params.set('domain', domain);
-      if (version) {
-        params.set('version_name', version);
-      }
-
-      const response = await fetch(
-        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ description }),
-        },
-      );
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => null);
-        const detail =
-          err && typeof err.detail === 'string'
-            ? err.detail
-            : `Backend returned status ${response.status}`;
-        throw new Error(detail);
-      }
-
-      const data = await response.json();
-      this.plantuml =
-        data.plantuml_code ?? JSON.stringify(data, null, 2);
-      this.lastPrompt = data.prompt ?? null;
-      this.promptText =
-        data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
-    } catch (error: unknown) {
-      console.error('Generation failed', error);
-      this.errorMessage =
-        error instanceof Error
-          ? `Generation failed: ${error.message}`
-          : 'Generation failed due to an unknown error.';
-    } finally {
-      this.isGenerating = false;
+      this.promptText = JSON.stringify(e.detail, null, 2);
+    } catch {
+      // Ignore serialization errors
     }
   }
+
+    private async onGenerateClick(): Promise<void> {
+      const name = this.processName.trim();
+      const domain = this.domain.trim();
+      const version = this.versionName.trim();
+      const description = this.processText.trim();
+
+      this.errorMessage = '';
+      this.lastSaveSucceeded = false;
+
+      if (!name || !domain || !description) {
+        this.errorMessage = 'Process name, domain and text prompt are required.';
+        return;
+      }
+
+      this.isGenerating = true;
+      this.lastPrompt = null;
+      this.promptText = '';
+
+      try {
+        const params = new URLSearchParams();
+        params.set('process_name', name);
+        params.set('domain', domain);
+        if (version) {
+          params.set('version_name', version);
+        }
+
+        const response = await fetch(
+          `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ description }),
+          },
+        );
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => null);
+          const detail =
+            err && typeof err.detail === 'string'
+              ? err.detail
+              : `Backend returned status ${response.status}`;
+          throw new Error(detail);
+        }
+
+        const data = await response.json();
+        this.plantuml =
+          data.plantuml_code ?? JSON.stringify(data, null, 2);
+
+        const prompt = data.prompt ?? null;
+        this.lastPrompt = prompt;
+
+        // Map backend prompt -> canonical ProcessStructureInput for canvas
+        if (
+          prompt &&
+          Array.isArray(prompt.actors) &&
+          Array.isArray(prompt.actions)
+        ) {
+          const structure = {
+            actors: prompt.actors as string[],
+            actions: (prompt.actions as any[]).map((a) => ({
+              actor: a.actor,
+              action: a.action,
+            })),
+            decisions: null,
+            parallelblocks: null,
+          };
+
+          // Mirror structure into JSON textarea
+          this.promptText = JSON.stringify(structure, null, 2);
+
+          // Push structure into canvas editor
+          const canvas = this.renderRoot?.querySelector(
+            'ad-canvas-editor',
+          ) as any;
+          if (canvas && typeof canvas.setStructure === 'function') {
+            canvas.setStructure(structure);
+          }
+        } else {
+          // Fallback – keep original JSON if structure shape is unexpected
+          this.promptText =
+            prompt != null ? JSON.stringify(prompt, null, 2) : '';
+        }
+      } catch (error: unknown) {
+        console.error('Generation failed', error);
+        this.errorMessage =
+          error instanceof Error
+            ? `Generation failed: ${error.message}`
+            : 'Generation failed due to an unknown error.';
+      } finally {
+        this.isGenerating = false;
+      }
+    }
 
   private async onSaveClick(): Promise<void> {
     const name = this.processName.trim();
