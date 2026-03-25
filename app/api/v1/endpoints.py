@@ -78,7 +78,8 @@ def _build_process_structure_from_structured_dict(
     raw_decisions = structured.get("decisions") or []
     raw_parallel = structured.get("parallel_branches") or []
 
-    actions: List[Dict[str, str]] = []
+    # Normalize actions
+    actions: List[Dict[str, Any]] = []
     for item in raw_actions:
         if not isinstance(item, dict):
             continue
@@ -87,21 +88,54 @@ def _build_process_structure_from_structured_dict(
         if actor and action:
             actions.append({"actor": actor, "action": action})
 
-    decisions: List[Dict[str, str]] = []
+    # Normalize decisions (including new index fields)
+    decisions: List[Dict[str, Any]] = []
     for item in raw_decisions:
         if not isinstance(item, dict):
             continue
+
         condition = (item.get("condition") or "").strip()
         yes = (item.get("branch_yes") or "").strip()
         no = (item.get("branch_no") or "").strip()
+
+        # Accept both snake_case and camelCase / fallback variations
+        yes_index_raw = (
+            item.get("yes_action_index")
+            if "yes_action_index" in item
+            else item.get("yesActionIndex")
+        )
+        no_index_raw = (
+            item.get("no_action_index")
+            if "no_action_index" in item
+            else item.get("noActionIndex")
+        )
+
+        # Coerce indices to int | None, ignoring invalid values
+        def _to_optional_int(value: Any) -> Optional[int]:
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        yes_index = _to_optional_int(yes_index_raw)
+        no_index = _to_optional_int(no_index_raw)
+
         if condition and yes and no:
-            decisions.append(
-                {
-                    "condition": condition,
-                    "branch_yes": yes,
-                    "branch_no": no,
-                }
-            )
+            decision_dict: Dict[str, Any] = {
+                "condition": condition,
+                "branch_yes": yes,
+                "branch_no": no,
+            }
+            # Only include indices if they are not None.
+            # Range validity is checked later by ProcessStructureInput validator.
+            if yes_index is not None:
+                decision_dict["yes_action_index"] = yes_index
+            if no_index is not None:
+                decision_dict["no_action_index"] = no_index
+
+            decisions.append(decision_dict)
 
     # For now we do not map parallel_branches into ParallelBlock structures.
     # This can be extended later when the visual editor supports parallel flows.
@@ -534,7 +568,6 @@ async def save_version_from_structure(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
-        prompt=version.prompt,
     )
 
 
@@ -590,7 +623,6 @@ async def save_generated_version(
             detail="plantuml_code must contain @startuml and @enduml.",
         )
 
-    # Optional: re-validate before saving (protects against manual edits)
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
         raise HTTPException(
@@ -635,7 +667,6 @@ async def save_generated_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
-        prompt=version.prompt,
     )
 
 
@@ -717,7 +748,6 @@ async def get_process_catalog(
             status=v.status,
             plantuml_code=v.plantuml_code,
             image_path=v.image_path,
-            prompt=v.prompt,
         )
         for v in versions
     ]
@@ -821,7 +851,6 @@ async def create_process_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
-        prompt=version.prompt,
     )
 
 
@@ -867,7 +896,6 @@ async def update_draft_process_version(
         )
         .first()
     )
-
     if version is None:
         raise HTTPException(
             status_code=404,
@@ -941,13 +969,12 @@ async def update_draft_process_version(
         process_id=updated.process_id,
         version_number=updated.version_number,
         version_name=updated.version_name or "",
-        created_at=updated.created_at,
-        llm_model=updated.llm_model,
-        tokens_used=updated.tokens_used,
+        created_at=updated.createdat,
+        llm_model=updated.llmmodel,
+        tokens_used=updated.tokensused,
         status=updated.status,
-        plantuml_code=updated.plantuml_code,
-        image_path=updated.image_path,
-        prompt=updated.prompt,
+        plantuml_code=updated.plantumlcode,
+        image_path=updated.imagepath,
     )
 
 
@@ -995,6 +1022,7 @@ async def delete_process_version(
         process_id=process_id,
         version_number=version_number,
     )
+
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -1074,5 +1102,4 @@ async def publish_process_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
-        prompt=version.prompt,
     )

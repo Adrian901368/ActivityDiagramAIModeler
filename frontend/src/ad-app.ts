@@ -791,100 +791,125 @@ export class AdApp extends LitElement {
     }
   }
 
-    private async onGenerateClick(): Promise<void> {
-      const name = this.processName.trim();
-      const domain = this.domain.trim();
-      const version = this.versionName.trim();
-      const description = this.processText.trim();
+  private async onGenerateClick(): Promise<void> {
+    const name = this.processName.trim();
+    const domain = this.domain.trim();
+    const version = this.versionName.trim();
+    const description = this.processText.trim();
 
-      this.errorMessage = '';
-      this.lastSaveSucceeded = false;
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
 
-      if (!name || !domain || !description) {
-        this.errorMessage = 'Process name, domain and text prompt are required.';
-        return;
-      }
-
-      this.isGenerating = true;
-      this.lastPrompt = null;
-      this.promptText = '';
-
-      try {
-        const params = new URLSearchParams();
-        params.set('process_name', name);
-        params.set('domain', domain);
-        if (version) {
-          params.set('version_name', version);
-        }
-
-        const response = await fetch(
-          `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ description }),
-          },
-        );
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => null);
-          const detail =
-            err && typeof err.detail === 'string'
-              ? err.detail
-              : `Backend returned status ${response.status}`;
-          throw new Error(detail);
-        }
-
-        const data = await response.json();
-        this.plantuml =
-          data.plantuml_code ?? JSON.stringify(data, null, 2);
-
-        const prompt = data.prompt ?? null;
-        this.lastPrompt = prompt;
-
-        // Map backend prompt -> canonical ProcessStructureInput for canvas
-        if (
-          prompt &&
-          Array.isArray(prompt.actors) &&
-          Array.isArray(prompt.actions)
-        ) {
-          const structure = {
-            actors: prompt.actors as string[],
-            actions: (prompt.actions as any[]).map((a) => ({
-              actor: a.actor,
-              action: a.action,
-            })),
-            decisions: null,
-            parallelblocks: null,
-          };
-
-          // Mirror structure into JSON textarea
-          this.promptText = JSON.stringify(structure, null, 2);
-
-          // Push structure into canvas editor
-          const canvas = this.renderRoot?.querySelector(
-            'ad-canvas-editor',
-          ) as any;
-          if (canvas && typeof canvas.setStructure === 'function') {
-            canvas.setStructure(structure);
-          }
-        } else {
-          // Fallback – keep original JSON if structure shape is unexpected
-          this.promptText =
-            prompt != null ? JSON.stringify(prompt, null, 2) : '';
-        }
-      } catch (error: unknown) {
-        console.error('Generation failed', error);
-        this.errorMessage =
-          error instanceof Error
-            ? `Generation failed: ${error.message}`
-            : 'Generation failed due to an unknown error.';
-      } finally {
-        this.isGenerating = false;
-      }
+    if (!name || !domain || !description) {
+      this.errorMessage = 'Process name, domain and text prompt are required.';
+      return;
     }
+
+    this.isGenerating = true;
+    this.lastPrompt = null;
+    this.promptText = '';
+
+    try {
+      const params = new URLSearchParams();
+      params.set('process_name', name);
+      params.set('domain', domain);
+      if (version) {
+        params.set('version_name', version);
+      }
+
+      const response = await fetch(
+        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ description }),
+        },
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+      this.plantuml =
+        data.plantuml_code ?? JSON.stringify(data, null, 2);
+
+      const prompt = data.prompt ?? null;
+      this.lastPrompt = prompt;
+
+      // Map backend prompt -> structure for canvas (preserve decisions + indices)
+      if (
+        prompt &&
+        Array.isArray(prompt.actors) &&
+        Array.isArray(prompt.actions)
+      ) {
+        const structure = {
+          actors: prompt.actors as string[],
+          actions: (prompt.actions as any[]).map((a: any) => ({
+            actor: a.actor,
+            action: a.action,
+          })),
+          decisions: Array.isArray(prompt.decisions)
+            ? (prompt.decisions as any[]).map((d: any) => ({
+                condition: d.condition,
+                // Map backend branch_yes/branch_no to canvas keys
+                branchyes:
+                  d.branch_yes ??
+                  d.branchyes ??
+                  d.branchYes ??
+                  'Yes branch',
+                branchno:
+                  d.branch_no ??
+                  d.branchno ??
+                  d.branchNo ??
+                  'No branch',
+                // NEW: pass through branch indices for canvas
+                yes_action_index:
+                  d.yes_action_index ??
+                  d.yesActionIndex ??
+                  null,
+                no_action_index:
+                  d.no_action_index ??
+                  d.noActionIndex ??
+                  null,
+              }))
+            : null,
+          // Parallel blocks are not yet used in the canvas editor
+          parallelblocks: null,
+        };
+
+        // Mirror structure into JSON textarea
+        this.promptText = JSON.stringify(structure, null, 2);
+
+        // Push structure into canvas editor
+        const canvas = this.renderRoot?.querySelector(
+          'ad-canvas-editor',
+        ) as any;
+        if (canvas && typeof canvas.setStructure === 'function') {
+          canvas.setStructure(structure);
+        }
+      } else {
+        // Fallback – keep original JSON if structure shape is unexpected
+        this.promptText =
+          prompt != null ? JSON.stringify(prompt, null, 2) : '';
+      }
+    } catch (error: unknown) {
+      console.error('Generation failed', error);
+      this.errorMessage =
+        error instanceof Error
+          ? `Generation failed: ${error.message}`
+          : 'Generation failed due to an unknown error.';
+    } finally {
+      this.isGenerating = false;
+    }
+  }
 
   private async onSaveClick(): Promise<void> {
     const name = this.processName.trim();
