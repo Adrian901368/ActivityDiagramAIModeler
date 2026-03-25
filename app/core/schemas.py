@@ -22,6 +22,7 @@ class Action(BaseModel):
         max_length=100,
         description="Who performs the action",
     )
+
     action: str = Field(
         ...,
         min_length=1,
@@ -40,6 +41,11 @@ class Action(BaseModel):
 class Decision(BaseModel):
     """
     Decision (if-then-else) in the process.
+
+    In addition to the textual description of YES/NO branches, this model
+    can (optionally) reference concrete actions in the `actions` list
+    via zero-based indices. This allows the visual editor and PlantUML
+    generator to draw explicit branching edges to the correct action nodes.
     """
 
     condition: str = Field(
@@ -48,17 +54,39 @@ class Decision(BaseModel):
         max_length=200,
         description="Decision condition",
     )
+
     branch_yes: str = Field(
         ...,
         min_length=1,
         max_length=200,
-        description="Action for YES branch",
+        description="Text description of the YES branch outcome",
     )
+
     branch_no: str = Field(
         ...,
         min_length=1,
         max_length=200,
-        description="Action for NO branch",
+        description="Text description of the NO branch outcome",
+    )
+
+    yes_action_index: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index into ProcessStructureInput.actions that "
+            "represents the target action for the YES branch. "
+            "Optional for backward compatibility, but strongly recommended."
+        ),
+    )
+
+    no_action_index: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index into ProcessStructureInput.actions that "
+            "represents the target action for the NO branch. "
+            "Optional for backward compatibility, but strongly recommended."
+        ),
     )
 
     @field_validator("condition", "branch_yes", "branch_no")
@@ -78,7 +106,7 @@ class ParallelBlock(BaseModel):
         ...,
         min_length=2,
         max_length=5,
-        description="Actions that are executed in parallel",
+        description="Actions that run in parallel within this block.",
     )
 
 
@@ -96,17 +124,20 @@ class ProcessStructureInput(BaseModel):
         description="List of actors (swimlanes)",
         examples=[["Customer", "System", "Warehouse"]],
     )
+
     actions: List[Action] = Field(
         ...,
         min_length=1,
         max_length=50,
         description="Sequence of actions in the process",
     )
+
     decisions: Optional[List[Decision]] = Field(
         default=None,
         max_length=10,
         description="Decisions in the process (optional)",
     )
+
     parallel_blocks: Optional[List[ParallelBlock]] = Field(
         default=None,
         max_length=5,
@@ -133,15 +164,14 @@ class ProcessStructureInput(BaseModel):
     @model_validator(mode="after")
     def validate_actor_references(self) -> "ProcessStructureInput":
         """
-        Ensure that every action references an actor that exists in the `actors` list.
+        Ensure that:
+        - every action references an actor that exists in the `actors` list
+        - any decision indices (yes_action_index / no_action_index), if set,
+          are valid indices into the `actions` list.
         """
         actor_set = {a.strip() for a in self.actors}
         unknown_actors = sorted(
-            {
-                action.actor
-                for action in self.actions
-                if action.actor not in actor_set
-            }
+            {action.actor for action in self.actions if action.actor not in actor_set}
         )
 
         if unknown_actors:
@@ -149,12 +179,29 @@ class ProcessStructureInput(BaseModel):
                 f"Actions reference unknown actors: {', '.join(unknown_actors)}"
             )
 
+        # Validate decision indices, if provided
+        if self.decisions:
+            actions_len = len(self.actions)
+            for idx, dec in enumerate(self.decisions):
+                if dec.yes_action_index is not None:
+                    if dec.yes_action_index < 0 or dec.yes_action_index >= actions_len:
+                        raise ValueError(
+                            f"Decision #{idx} has invalid yes_action_index "
+                            f"{dec.yes_action_index} (must be 0..{actions_len - 1})"
+                        )
+                if dec.no_action_index is not None:
+                    if dec.no_action_index < 0 or dec.no_action_index >= actions_len:
+                        raise ValueError(
+                            f"Decision #{idx} has invalid no_action_index "
+                            f"{dec.no_action_index} (must be 0..{actions_len - 1})"
+                        )
+
         return self
 
 
 class GenerateResponse(BaseModel):
     """
-    Response model for the /generate and /generate-from-text endpoints.
+    Response model for the /generate endpoint.
     """
 
     status: str = Field(default="success")
@@ -162,7 +209,6 @@ class GenerateResponse(BaseModel):
     process_name: str
     tokens_used: Optional[int] = None
     model_used: str
-    # Structured JSON (prompt) that was used to generate the diagram
     prompt: dict | None = None
 
 
@@ -177,11 +223,6 @@ class ErrorResponse(BaseModel):
 
 
 class CatalogVersion(BaseModel):
-    """
-    Single stored version of a process in the catalog.
-    Mirrors app.database.models.Version.
-    """
-
     id: int
     process_id: int
     version_number: int
@@ -191,10 +232,7 @@ class CatalogVersion(BaseModel):
     tokens_used: Optional[int] = None
     status: str
     plantuml_code: str
-    # Relative or absolute path to rendered PNG diagram
-    image_path: str | None = None
-    # Stored prompt JSON (structured input) for this version
-    prompt: dict | None = None
+    image_path: Optional[str] = None
 
 
 class CatalogProcessDetail(BaseModel):
@@ -211,15 +249,10 @@ class ProcessInCatalog(BaseModel):
     versions_count: int
 
 
-# Pydantic v2-style configuration for ORM models
+# Pydantic v2-style configuration
 model_config = ConfigDict(from_attributes=True)
 
 
 class NewVersionInput(BaseModel):
-    """
-    Payload for creating or updating a version from already generated PlantUML.
-    """
-
     plantuml_code: str
-    # Structured JSON that was used to generate this PlantUML (optional)
     prompt: dict | None = None
