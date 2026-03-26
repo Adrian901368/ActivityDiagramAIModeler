@@ -1,4 +1,3 @@
-# app/core/schemas.py
 from typing import List, Optional
 from datetime import datetime
 
@@ -120,7 +119,7 @@ class ProcessStructureInput(BaseModel):
     actors: List[str] = Field(
         ...,
         min_length=1,
-        max_length=10,
+        max_length=20,
         description="List of actors (swimlanes)",
         examples=[["Customer", "System", "Warehouse"]],
     )
@@ -128,7 +127,7 @@ class ProcessStructureInput(BaseModel):
     actions: List[Action] = Field(
         ...,
         min_length=1,
-        max_length=50,
+        max_length=100,
         description="Sequence of actions in the process",
     )
 
@@ -166,8 +165,7 @@ class ProcessStructureInput(BaseModel):
         """
         Ensure that:
         - every action references an actor that exists in the `actors` list
-        - any decision indices (yes_action_index / no_action_index), if set,
-          are valid indices into the `actions` list.
+        - invalid decision indices are sanitized to None instead of failing
         """
         actor_set = {a.strip() for a in self.actors}
         unknown_actors = sorted(
@@ -179,22 +177,16 @@ class ProcessStructureInput(BaseModel):
                 f"Actions reference unknown actors: {', '.join(unknown_actors)}"
             )
 
-        # Validate decision indices, if provided
         if self.decisions:
             actions_len = len(self.actions)
-            for idx, dec in enumerate(self.decisions):
+            for dec in self.decisions:
                 if dec.yes_action_index is not None:
                     if dec.yes_action_index < 0 or dec.yes_action_index >= actions_len:
-                        raise ValueError(
-                            f"Decision #{idx} has invalid yes_action_index "
-                            f"{dec.yes_action_index} (must be 0..{actions_len - 1})"
-                        )
+                        dec.yes_action_index = None
+
                 if dec.no_action_index is not None:
                     if dec.no_action_index < 0 or dec.no_action_index >= actions_len:
-                        raise ValueError(
-                            f"Decision #{idx} has invalid no_action_index "
-                            f"{dec.no_action_index} (must be 0..{actions_len - 1})"
-                        )
+                        dec.no_action_index = None
 
         return self
 
@@ -249,7 +241,6 @@ class ProcessInCatalog(BaseModel):
     versions_count: int
 
 
-# Pydantic v2-style configuration
 model_config = ConfigDict(from_attributes=True)
 
 
