@@ -50,3 +50,5 @@ Thumbs.db
 
 # --- exportend PNG imaged ---
 /generated_diagrams
+
+.env

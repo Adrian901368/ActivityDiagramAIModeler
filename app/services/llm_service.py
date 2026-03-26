@@ -1,10 +1,16 @@
-# app/services/llm_service.py
 from typing import List, Dict, Any
 import json
+import logging
 
 from openai import OpenAI
 
 from app.core.config import settings
+
+
+logger = logging.getLogger(__name__)
+
+MAX_STRUCTURED_ACTORS = 20
+MAX_STRUCTURED_ACTIONS = 100
 
 
 def get_llm_client() -> OpenAI:
@@ -16,6 +22,162 @@ def get_llm_client() -> OpenAI:
         api_key=settings.llm.api_key,
         base_url=settings.llm.base_url,
     )
+
+
+def log_groq_rate_limits(response: Any) -> None:
+    """
+    Log Groq token/day rate limit information if available in response headers.
+    """
+    headers = getattr(response, "response_headers", None)
+
+    if not headers:
+        logger.info("[Groq] Rate limit headers are not available in the response.")
+        return
+
+    limit_tpd = headers.get("x-ratelimit-limit-tokens-day", "N/A")
+    remaining_tpd = headers.get("x-ratelimit-remaining-tokens-day", "N/A")
+    reset_tpd = headers.get("x-ratelimit-reset-tokens-day", "N/A")
+
+    logger.info(
+        "[Groq] Daily token limit: %s | Remaining: %s | Reset: %s",
+        limit_tpd,
+        remaining_tpd,
+        reset_tpd,
+    )
+
+
+def sanitize_structured_process_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize LLM JSON output so it better matches the current Pydantic schema.
+    """
+    if not isinstance(payload, dict):
+        return {}
+
+    parallel_blocks = payload.get("parallel_blocks")
+    if parallel_blocks is None and "parallel_branches" in payload:
+        parallel_blocks = payload.get("parallel_branches")
+
+    actors = payload.get("actors")
+    if not isinstance(actors, list):
+        actors = []
+
+    cleaned_actors: List[str] = []
+    seen_actors: set[str] = set()
+    for actor in actors:
+        if not isinstance(actor, str):
+            continue
+        actor_name = actor.strip()
+        if not actor_name:
+            continue
+        if actor_name in seen_actors:
+            continue
+        seen_actors.add(actor_name)
+        cleaned_actors.append(actor_name)
+
+    actions = payload.get("actions")
+    if not isinstance(actions, list):
+        actions = []
+
+    cleaned_actions: List[Dict[str, str]] = []
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        actor = item.get("actor")
+        action = item.get("action")
+        if not isinstance(actor, str) or not isinstance(action, str):
+            continue
+        actor = actor.strip()
+        action = action.strip()
+        if not actor or not action:
+            continue
+        cleaned_actions.append({"actor": actor, "action": action})
+
+    cleaned_decisions: List[Dict[str, Any]] = []
+    decisions = payload.get("decisions")
+    if isinstance(decisions, list):
+        actions_len = len(cleaned_actions)
+
+        for item in decisions:
+            if not isinstance(item, dict):
+                continue
+
+            condition = item.get("condition")
+            branch_yes = item.get("branch_yes")
+            branch_no = item.get("branch_no")
+
+            if not isinstance(condition, str) or not condition.strip():
+                continue
+            if not isinstance(branch_yes, str) or not branch_yes.strip():
+                continue
+            if not isinstance(branch_no, str) or not branch_no.strip():
+                continue
+
+            yes_action_index = item.get("yes_action_index")
+            no_action_index = item.get("no_action_index")
+
+            if not isinstance(yes_action_index, int):
+                yes_action_index = None
+            elif yes_action_index < 0 or yes_action_index >= actions_len:
+                yes_action_index = None
+
+            if not isinstance(no_action_index, int):
+                no_action_index = None
+            elif no_action_index < 0 or no_action_index >= actions_len:
+                no_action_index = None
+
+            cleaned_decisions.append(
+                {
+                    "condition": condition.strip(),
+                    "branch_yes": branch_yes.strip(),
+                    "branch_no": branch_no.strip(),
+                    "yes_action_index": yes_action_index,
+                    "no_action_index": no_action_index,
+                }
+            )
+
+    cleaned_parallel_blocks: List[Dict[str, Any]] = []
+    if isinstance(parallel_blocks, list):
+        for block in parallel_blocks:
+            if not isinstance(block, dict):
+                continue
+
+            block_actions = block.get("actions")
+            if not isinstance(block_actions, list):
+                continue
+
+            cleaned_block_actions: List[Dict[str, str]] = []
+            for item in block_actions:
+                if not isinstance(item, dict):
+                    continue
+                actor = item.get("actor")
+                action = item.get("action")
+                if not isinstance(actor, str) or not isinstance(action, str):
+                    continue
+                actor = actor.strip()
+                action = action.strip()
+                if not actor or not action:
+                    continue
+                cleaned_block_actions.append({"actor": actor, "action": action})
+
+            if len(cleaned_block_actions) >= 2:
+                cleaned_parallel_blocks.append({"actions": cleaned_block_actions})
+
+    result: Dict[str, Any] = {
+        "actors": cleaned_actors[:MAX_STRUCTURED_ACTORS],
+        "actions": cleaned_actions[:MAX_STRUCTURED_ACTIONS],
+    }
+
+    if cleaned_decisions:
+        result["decisions"] = cleaned_decisions
+
+    if cleaned_parallel_blocks:
+        result["parallel_blocks"] = cleaned_parallel_blocks
+
+    process_name = payload.get("process_name")
+    if isinstance(process_name, str) and process_name.strip():
+        result["process_name"] = process_name.strip()
+
+    return result
 
 
 def generate_simple_response(messages: List[Dict[str, str]]) -> str:
@@ -33,6 +195,8 @@ def generate_simple_response(messages: List[Dict[str, str]]) -> str:
         messages=messages,
         temperature=settings.llm.temperature,
     )
+
+    log_groq_rate_limits(response)
 
     content = response.choices[0].message.content
     return content or ""
@@ -53,9 +217,9 @@ def generate_structured_prompt_from_text(
     - language: hint for input language (default "en")
 
     Output:
-    - dict with the following English keys:
+    - dict with the following keys:
 
-      "process_name": str,   # process name, in English
+      "process_name": str,   # optional helper field
       "actors": [str],       # actor names, in English
       "actions": [           # actions, in English
         {"actor": str, "action": str},
@@ -71,8 +235,13 @@ def generate_structured_prompt_from_text(
         },
         ...
       ],
-      "parallel_branches": [...],  # may be empty list
-      "signals": [...]             # may be empty list
+      "parallel_blocks": [   # optional
+        {
+          "actions": [
+            {"actor": str, "action": str}
+          ]
+        }
+      ]
 
     IMPORTANT:
     - Even if the input description is in Slovak or any other language,
@@ -88,7 +257,10 @@ def generate_structured_prompt_from_text(
         "content": (
             "You are an assistant that converts a natural language description of a "
             "business process into a structured JSON object.\n\n"
-            "The JSON MUST use exactly the following keys (all in English):\n"
+            "You must follow these hard limits:\n"
+            f"- actors: maximum {MAX_STRUCTURED_ACTORS}\n"
+            f"- actions: maximum {MAX_STRUCTURED_ACTIONS}\n\n"
+            "The JSON MUST use only the following keys (all in English):\n"
             " * 'process_name': string\n"
             " * 'actors': array of strings\n"
             " * 'actions': array of objects { 'actor': string, 'action': string }\n"
@@ -99,8 +271,9 @@ def generate_structured_prompt_from_text(
             "     'yes_action_index': integer or null,\n"
             "     'no_action_index': integer or null\n"
             "   }\n"
-            " * 'parallel_branches': array (can be empty)\n"
-            " * 'signals': array (can be empty)\n\n"
+            " * 'parallel_blocks': array of objects {\n"
+            "     'actions': array of objects { 'actor': string, 'action': string }\n"
+            "   }\n\n"
             "LANGUAGE REQUIREMENTS:\n"
             "- All VALUES (process name, actor names, actions, decision conditions, "
             "branch texts) MUST be written in clear English, even if the input "
@@ -112,29 +285,25 @@ def generate_structured_prompt_from_text(
             "approval vs. rejection, or alternative error paths.\n"
             "- Whenever such branching is present, you MUST create at least one "
             "entry in the 'decisions' array.\n"
-            "- The 'condition' should summarize the check being performed "
-            "(for example: 'Is the student enrolled and is there free capacity?').\n"
+            "- The 'condition' should summarize the check being performed.\n"
             "- 'branch_yes' and 'branch_no' must clearly describe what happens "
-            "in each branch (for example: 'Register the student and show "
-            "confirmation' vs. 'Reject the registration and show an error message').\n\n"
+            "in each branch.\n\n"
             "DECISION–ACTION CONSISTENCY AND INDICES:\n"
-            "- Each item in 'actions' represents a concrete step in the process. "
-            "You MUST make sure that the outcomes described in 'branch_yes' and "
-            "'branch_no' correspond to one or more of these actions.\n"
-            "- For every decision, set 'yes_action_index' and 'no_action_index' "
-            "to zero-based indices into the 'actions' array, whenever possible.\n"
-            "- If a branch directly continues with a specific existing action, "
-            "use the index of that action. For example, if the YES branch leads "
-            "to the action 'Register the student for the exam', and that action "
-            "is at index 6 in the 'actions' array, then 'yes_action_index' must "
-            "be 6.\n"
-            "- If a branch contains several consecutive actions, choose the index "
-            "of the FIRST action in that branch.\n"
-            "- If, in a rare case, you cannot map a branch to a specific action, "
-            "you may set the corresponding index to null, but you should avoid "
-            "this when the mapping is clear from the description.\n"
+            "- Each item in 'actions' represents a concrete step in the process.\n"
+            "- You MUST make sure that the outcomes described in 'branch_yes' and "
+            "'branch_no' correspond to one or more actions.\n"
+            "- Set 'yes_action_index' and 'no_action_index' only when you can map "
+            "the branch to an existing action with high confidence.\n"
+            "- If you are uncertain, use null.\n"
+            "- Never invent an index.\n"
+            "- Indices MUST always be zero-based.\n"
             "- Indices MUST always be between 0 and len(actions)-1 when they "
-            "are not null.\n\n"
+            "are not null.\n"
+            "- If a branch contains several consecutive actions, choose the index "
+            "of the FIRST action in that branch.\n\n"
+            "PARALLEL BLOCK RULES:\n"
+            "- Use 'parallel_blocks' only for truly parallel actions.\n"
+            "- Each parallel block must contain at least 2 actions.\n\n"
             "OUTPUT FORMAT:\n"
             "- Return ONLY a valid JSON object, without comments or any "
             "surrounding text."
@@ -144,6 +313,12 @@ def generate_structured_prompt_from_text(
     user_payload: Dict[str, Any] = {
         "description": description,
         "input_language": language,
+        "constraints": {
+            "max_actors": MAX_STRUCTURED_ACTORS,
+            "max_actions": MAX_STRUCTURED_ACTIONS,
+            "use_parallel_blocks_key": True,
+            "if_index_is_uncertain_use_null": True,
+        },
     }
 
     if process_name:
@@ -155,17 +330,20 @@ def generate_structured_prompt_from_text(
         "role": "user",
         "content": (
             "Based on the following description of a business process, create a "
-            "JSON object that follows the schema described above. Use exactly the "
-            "keys: process_name, actors, actions, decisions, parallel_branches, "
-            "signals.\n\n"
+            "JSON object that follows the schema described above.\n\n"
+            "Use only these keys: process_name, actors, actions, decisions, "
+            "parallel_blocks.\n\n"
             "All labels and texts inside the JSON (process name, actor names, "
             "actions, conditions, branches) MUST be in English.\n\n"
             "If the description contains any success/failure outcome, conditions, "
             "or 'if / otherwise' logic, you MUST represent that logic explicitly "
-            "in the 'decisions' array and, whenever possible, set "
-            "'yes_action_index' and 'no_action_index' to indices of existing "
-            "actions that correspond to the YES/NO branches.\n\n"
-            f"Input \n{json.dumps(user_payload, ensure_ascii=False, indent=2)}"
+            "in the 'decisions' array.\n\n"
+            "For yes_action_index and no_action_index:\n"
+            "- use a valid zero-based index into actions when the mapping is clear,\n"
+            "- otherwise use null,\n"
+            "- never return guessed or out-of-range indices.\n\n"
+            "Input:\n"
+            f"{json.dumps(user_payload, ensure_ascii=False, indent=2)}"
         ),
     }
 
@@ -173,14 +351,15 @@ def generate_structured_prompt_from_text(
         model=settings.llm.model,
         messages=[system_message, user_message],
         temperature=settings.llm.temperature,
-        # Groq supports OpenAI-style response_format
         response_format={"type": "json_object"},
     )
 
+    log_groq_rate_limits(response)
+
     raw_content = response.choices[0].message.content
 
-    # With response_format=\"json_object\" content may be a dict or a JSON string
     if isinstance(raw_content, dict):
-        return raw_content
+        return sanitize_structured_process_payload(raw_content)
 
-    return json.loads(raw_content or "{}")
+    parsed = json.loads(raw_content or "{}")
+    return sanitize_structured_process_payload(parsed)
