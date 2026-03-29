@@ -258,7 +258,7 @@ export class AdCanvasEditor extends LitElement {
   private mergeGap = 48;
   private finalGap = 40;
 
-    public setStructure(structure: ProcessStructureInputDto | null): void {
+  public setStructure(structure: ProcessStructureInputDto | null): void {
     if (!structure) {
       this.actors = [];
       this.nodes = [];
@@ -279,9 +279,9 @@ export class AdCanvasEditor extends LitElement {
     const laneCenters = this.computeLaneCenters(this.actors.length);
     const actionNodesByIndex = new Map<number, ActionCanvasNode>();
 
-    // Spolocna 'beziaca' suradnica Y, ktora klesa nadol podla realnej vysky nodov
     let currentY = baseY;
 
+    // PASS 1: Lay out all action nodes sequentially using running currentY
     structure.actions?.forEach((a, index) => {
       const laneIndex = this.actors.findIndex((actor) => actor === a.actor);
       const lane = laneIndex === -1 ? 0 : laneIndex;
@@ -293,22 +293,18 @@ export class AdCanvasEditor extends LitElement {
         actor: a.actor,
         text: a.action,
         x,
-        y: currentY, // Nastavime beziacu suradnicu
+        y: currentY,
         actionIndex: index,
       };
 
-      // Spocitame realnu vysku tohto konkretneho nodu
       const dynamicHeight = this.getNodeDynamicHeight(node);
-
       nodes.push(node);
       actionNodesByIndex.set(index, node);
-
-      // Posunieme currenY o vysku aktualneho nodu + pevnu medzeru
       currentY += dynamicHeight + this.nodeVerticalGap;
     });
 
+    // PASS 2: Place decision nodes relative to their source/target actions
     structure.decisions?.forEach((d) => {
-      // Skontrolujeme spravne kluce z DTO
       const yesIndex = d.yes_action_index !== undefined && d.yes_action_index !== null ? d.yes_action_index : null;
       const noIndex = d.no_action_index !== undefined && d.no_action_index !== null ? d.no_action_index : null;
 
@@ -324,44 +320,29 @@ export class AdCanvasEditor extends LitElement {
       if (targetIndexes.length > 0) {
         const minTargetIdx = Math.min(...targetIndexes);
         const candidate = minTargetIdx - 1;
-        if (candidate >= 0) {
-          sourceActionIndex = candidate;
-        }
+        if (candidate >= 0) sourceActionIndex = candidate;
       }
 
       const sourceNode = sourceActionIndex !== null ? actionNodesByIndex.get(sourceActionIndex) ?? null : null;
 
       let laneActor = this.actors[0] ?? 'Actor';
       let laneX = laneCenters[0];
-
-      if (sourceNode) {
-        laneActor = sourceNode.actor;
-        laneX = sourceNode.x;
-      } else if (yesNode) {
-        laneActor = yesNode.actor;
-        laneX = yesNode.x;
-      } else if (noNode) {
-        laneActor = noNode.actor;
-        laneX = noNode.x;
-      }
+      if (sourceNode) { laneActor = sourceNode.actor; laneX = sourceNode.x; }
+      else if (yesNode) { laneActor = yesNode.actor; laneX = yesNode.x; }
+      else if (noNode) { laneActor = noNode.actor; laneX = noNode.x; }
 
       let decisionY = currentY;
-
       if (targetNodes.length > 0) {
         const minTargetY = Math.min(...targetNodes.map((n) => n.y));
-        const verticalOffset = this.nodeVerticalGap;
-        decisionY = Math.max(this.laneHeaderHeight + 100, minTargetY - verticalOffset);
-
+        decisionY = Math.max(this.laneHeaderHeight + 100, minTargetY - this.nodeVerticalGap);
         if (sourceNode) {
-          const sourceDynamicHeight = this.getNodeDynamicHeight(sourceNode);
-          const minAllowed = sourceNode.y + sourceDynamicHeight + this.nodeVerticalGap;
-          if (decisionY < minAllowed) {
-            decisionY = minAllowed;
-          }
+          const srcH = this.getNodeDynamicHeight(sourceNode);
+          const minAllowed = sourceNode.y + srcH + this.nodeVerticalGap;
+          if (decisionY < minAllowed) decisionY = minAllowed;
         }
       } else if (sourceNode) {
-        const sourceDynamicHeight = this.getNodeDynamicHeight(sourceNode);
-        decisionY = sourceNode.y + sourceDynamicHeight + this.nodeVerticalGap;
+        const srcH = this.getNodeDynamicHeight(sourceNode);
+        decisionY = sourceNode.y + srcH + this.nodeVerticalGap;
       }
 
       const decisionNode: DecisionCanvasNode = {
@@ -369,8 +350,8 @@ export class AdCanvasEditor extends LitElement {
         type: 'decision',
         actor: laneActor,
         condition: d.condition,
-        yesText: d.branchyes || d.branchyes || 'yes', // Fallback na obe mozne konvencie
-        noText: d.branchno || d.branchno || 'no',
+        yesText: d.branchyes || 'yes',
+        noText: d.branchno || 'no',
         yesActionIndex: yesIndex,
         noActionIndex: noIndex,
         sourceActionIndex,
@@ -382,16 +363,17 @@ export class AdCanvasEditor extends LitElement {
 
       const decisionDynamicHeight = this.getNodeDynamicHeight(decisionNode);
       if (decisionY + decisionDynamicHeight >= currentY) {
-         currentY = decisionY + decisionDynamicHeight + this.nodeVerticalGap;
+        currentY = decisionY + decisionDynamicHeight + this.nodeVerticalGap;
       }
     });
 
+    // PASS 3: Push branch target action nodes safely below their decision hexagon
     const decisionNodes = nodes.filter((n) => n.type === 'decision') as DecisionCanvasNode[];
     decisionNodes.forEach((d) => {
       const yesAction = d.yesActionIndex !== null && d.yesActionIndex !== undefined
-          ? actionNodesByIndex.get(d.yesActionIndex) ?? null : null;
+        ? actionNodesByIndex.get(d.yesActionIndex) ?? null : null;
       const noAction = d.noActionIndex !== null && d.noActionIndex !== undefined
-          ? actionNodesByIndex.get(d.noActionIndex) ?? null : null;
+        ? actionNodesByIndex.get(d.noActionIndex) ?? null : null;
 
       if (!yesAction && !noAction) return;
 
@@ -400,30 +382,40 @@ export class AdCanvasEditor extends LitElement {
       if (yesAction) {
         yesAction.x = d.x - this.branchOffset;
         const yesDynamicHeight = this.getNodeDynamicHeight(yesAction);
-        // Odsadime stred yesAction tak nizko, aby jeho HORNY okraj bol az hlboko pod stredom hexagonu
         const safeYesY = d.y + (decisionDynamicHeight / 2) + this.nodeVerticalGap + (yesDynamicHeight / 2);
-
-        if (yesAction.y < safeYesY) {
-            yesAction.y = safeYesY;
-        }
+        if (yesAction.y < safeYesY) yesAction.y = safeYesY;
       }
 
       if (noAction) {
         noAction.x = d.x + this.branchOffset;
         const noDynamicHeight = this.getNodeDynamicHeight(noAction);
-        // Odsadime stred noAction tak nizko, aby jeho HORNY okraj bol az hlboko pod stredom hexagonu
         const safeNoY = d.y + (decisionDynamicHeight / 2) + this.nodeVerticalGap + (noDynamicHeight / 2);
-
-        if (noAction.y < safeNoY) {
-            noAction.y = safeNoY;
-        }
+        if (noAction.y < safeNoY) noAction.y = safeNoY;
       }
+    });
+
+    // PASS 4: Normalization - ensure NO action node sits above a previous one in sequence
+    // This fixes the case where branch targets were pushed DOWN in Pass 3,
+    // but subsequent sequential action nodes (e.g. "Display confirmation")
+    // still have their old lower Y from Pass 1 and visually appear ABOVE the pushed branch nodes.
+    const sortedByIndex = [...actionNodesByIndex.values()].sort(
+      (a, b) => (a.actionIndex ?? 0) - (b.actionIndex ?? 0)
+    );
+
+    let minNextY = baseY;
+    sortedByIndex.forEach((action) => {
+      const h = this.getNodeDynamicHeight(action);
+      // If this action ended up above the minimum safe Y, push it down
+      if (action.y < minNextY) {
+        action.y = minNextY;
+      }
+      // Next action in sequence must start below this one's bottom edge + gap
+      minNextY = action.y + h + this.nodeVerticalGap;
     });
 
     this.startOffset = { x: 0, y: 0 };
     this.finalOffset = { x: 0, y: 0 };
     this.mergeOffsets = {};
-
     this.nodes = [...nodes].sort((a, b) => a.y - b.y);
     this.emitStructureChange();
   }
@@ -493,14 +485,11 @@ export class AdCanvasEditor extends LitElement {
     return lines.length > 0 ? lines : [''];
   }
 
-    // Pomocne vypocty pre sirku a vysku nodov na zaklade VIACRYCH riadkov
   private getActionDimensions(lines: string[]): { width: number; height: number } {
     const minWidth = 40;
-    // Najdeme najdlhsi riadok a vypocitame sirku z neho (cca 5.5px na znak + maly padding 16px)
     const longestLine = [...lines].sort((a, b) => b.length - a.length)[0] || '';
     const estimatedWidth = Math.max(minWidth, longestLine.length * 5.5 + 16);
 
-    // Vyska zavisi od poctu riadkov (cca 14px na riadok + 16px padding pre vrch/spodok)
     const height = (lines.length * 14) + 16;
 
     return { width: estimatedWidth, height };
@@ -524,7 +513,6 @@ export class AdCanvasEditor extends LitElement {
     };
   }
 
-    // Zisti dynamicku vysku pre dany uzol
   private getNodeDynamicHeight(node: CanvasNode): number {
     if (node.type === 'action') {
       const actionNode = node as ActionCanvasNode;
@@ -704,15 +692,13 @@ export class AdCanvasEditor extends LitElement {
         const actionNode = node as ActionCanvasNode;
         const rawText = actionNode.text || 'New action';
         
-        // Zalomime text (max 22 znakov na riadok - prisposobte podla potreby)
         const lines = this.wrapText(rawText, 22);
         const dims = this.getActionDimensions(lines);
         
         const x = node.x - dims.width / 2;
         const y = node.y - dims.height / 2;
-
-        // Vypocitame zaciatocne Y pre prvy riadok textu, aby bol cely blok vycentrovany
-        // lines.length - 1 reprezentuje pocet medzier medzi riadkami
+        
+        // lines.length - 1
         const startYOffset = -((lines.length - 1) * 14) / 2;
 
         return svg`
@@ -1144,11 +1130,11 @@ export class AdCanvasEditor extends LitElement {
   private edgeBranch(startX: number, startY: number, endX: number, endY: number) {
     return this.renderPolylineEdge(
       [
-        { x: startX, y: startY }, // 1. bod: Odchod z okraja hexagonu (v strede jeho vysky)
-        { x: endX, y: startY },   // 2. bod: Horizontalny presun nad stred cieloveho Action nodu
-        { x: endX, y: endY },     // 3. bod: Zvisly presun dolu na horny okraj Action nodu
+        { x: startX, y: startY },
+        { x: endX, y: startY },
+        { x: endX, y: endY },
       ],
-      endY > startY ? 'down' : 'up' // Smer sipky
+      endY > startY ? 'down' : 'up'
     );
   }
 
@@ -1215,7 +1201,7 @@ export class AdCanvasEditor extends LitElement {
       paths.push(
         this.edgeStraight(
           layout.startNode.x,
-          layout.startNode.y + 10, // Start node ma polomer 10
+          layout.startNode.y + 10,
           firstAction.x,
           firstAction.y - h
         )
@@ -1255,7 +1241,6 @@ export class AdCanvasEditor extends LitElement {
     }
 
     layout.decisionNodes.forEach((decision) => {
-      // Sirka rozhodovacieho nodu pre odbocenie sipok (berieme plnu polovicu sirky)
       const lines = this.wrapText(decision.condition || 'Decision', 18);
       const dims = this.getDecisionDimensions(lines);
       const halfW = dims.halfW;
@@ -1529,17 +1514,12 @@ export class AdCanvasEditor extends LitElement {
         let node = nodes[nodeIndex];
 
         const laneIndex = this.getLaneIndexForX(node.x);
-        // Ziskame noveho (alebo ponechame povodneho) aktera podla toho, do akej swimlane sme potiahli node
         const actor = this.actors[laneIndex] ?? this.actors[0] ?? node.actor;
 
-        // ODSTRANENE: Povodne tu bol if-else blok, ktory pre nody nepatriace do branchNodeIds
-        // fixne nastavil x: laneCenters[laneIndex]. Teraz vsetky nody (action aj decision)
-        // zostanu stat presne na suradniciach 'x' a 'y', kam ich pouzivatel potiahol.
         node = { ...node, actor };
 
         nodes[nodeIndex] = node;
 
-        // Zoradenie nodov a vyvolanie prekreslenia s ucastou eventu
         this.nodes = [...nodes].sort((a, b) => a.y - b.y);
         this.emitStructureChange();
   }
