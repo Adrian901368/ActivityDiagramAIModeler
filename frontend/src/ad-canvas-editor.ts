@@ -1,4 +1,4 @@
-import { LitElement, html, css, svg } from 'lit';
+import { LitElement, html, css, svg, type TemplateResult } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
 type NodeType = 'action' | 'decision';
@@ -93,7 +93,15 @@ interface ConnectingDragState {
   currentY: number;
 }
 
-type DragState = RealDragState | VirtualDragState | DividerDragState | ConnectingDragState;
+interface EdgePanelDragState {
+  kind: 'edge-panel';
+  startX: number;
+  startY: number;
+  initialOffsetX: number;
+  initialOffsetY: number;
+}
+
+type DragState = RealDragState | VirtualDragState | DividerDragState | ConnectingDragState | EdgePanelDragState;
 
 type BranchSide = 'yes' | 'no';
 
@@ -323,7 +331,12 @@ export class AdCanvasEditor extends LitElement {
 
   @state() private panelOffset: Point = { x: 0, y: 0 };
   @state() private hoveredNodeId: string | null = null;
-  @state() private explicitEdges: Array<{ fromId: string; toId: string }> = [];
+  @state() private explicitEdges: Array<{ id: string; fromId: string; toId: string; portType: string }> = [];
+
+  @state() private selectedEdge: { id: string; fromId: string; toId: string; midX: number; midY: number } | null = null;
+  @state() private edgePanelOffset: Point = { x: 0, y: 0 };
+
+  @state() private deletedEdgeIds: string[] = [];
 
   private panelDrag: { startMouseX: number; startMouseY: number; startOffsetX: number; startOffsetY: number } | null = null;
 
@@ -344,7 +357,11 @@ export class AdCanvasEditor extends LitElement {
   private mergeGap = 48;
   private finalGap = 40;
 
+  private isInternalChange = false;
+
   public setStructure(structure: ProcessStructureInputDto | null): void {
+    if (this.isInternalChange) return;
+
     if (!structure) {
       this.actors = [];
       this.nodes = [];
@@ -507,46 +524,61 @@ export class AdCanvasEditor extends LitElement {
     this.emitStructureChange();
   }
 
-  public getStructure(): ProcessStructureInputDto {
+    public getStructure(): ProcessStructureInputDto {
     const actors = [...new Set(this.actors.length ? this.actors : ['Actor'])];
     const orderedNodes = [...this.nodes].sort((a, b) => a.y - b.y);
 
-    const actions: ProcessActionDto[] = orderedNodes
-      .filter((n) => n.type === 'action')
-      .map((n) => ({
-        actor: n.actor,
-        action: (n as ActionCanvasNode).text,
-      }));
+    const actionNodes = orderedNodes.filter((n) => n.type === 'action');
+
+    // KĽÚČOVÝ FIX: Dynamický prekladač indexov.
+    // Zistí, na ktorom indexe sa uzol reálne nachádza teraz, bez ohľadu na to, čo bolo predtým.
+    const getNewIndex = (oldIndex: number | null): number | null => {
+      if (oldIndex === null || oldIndex === undefined) return null;
+      const originalNode = this.nodes.find(n => n.type === 'action' && (n as ActionCanvasNode).actionIndex === oldIndex);
+      if (!originalNode) return null;
+      const newIdx = actionNodes.findIndex(n => n.id === originalNode.id);
+      return newIdx !== -1 ? newIdx : null;
+    };
+
+    const actions: ProcessActionDto[] = actionNodes.map((n) => ({
+      actor: n.actor,
+      action: (n as ActionCanvasNode).text,
+    }));
 
     const decisions: ProcessDecisionDto[] = orderedNodes
       .filter((n) => n.type === 'decision')
       .map((n) => {
         const d = n as DecisionCanvasNode;
         return {
-          condition: d.condition,
-          branchyes: d.yesText, // Ak mate v DTO naozaj definovane branchyes (bez podciarkovnika), tak toto nechajte takto. Ak sa to stazuje, zmente to na branch_yes.
-          branchno: d.noText,
-          yes_action_index: d.yesActionIndex ?? null,
-          no_action_index: d.noActionIndex ?? null,
-        } as ProcessDecisionDto;
+          condition: d.condition || '',
+          branchyes: d.yesText || '',
+          branchno: d.noText || '',
+          yesactionindex: getNewIndex(d.yesActionIndex),
+          noactionindex: getNewIndex(d.noActionIndex),
+        };
       });
 
     return {
       actors,
       actions,
       decisions: decisions.length ? decisions : null,
-      parallelblocks: null,
+      parallelblocks: null
     };
   }
 
   private emitStructureChange(): void {
+    this.isInternalChange = true; // Zaznačíme, že zmena prišla zvnútra editora
     this.dispatchEvent(
       new CustomEvent('structure-change', {
         detail: this.getStructure(),
         bubbles: true,
         composed: true,
-      }),
+      })
     );
+    // Dáme aplikácii čas na spracovanie eventu, kým poistku uvoľníme
+    setTimeout(() => {
+      this.isInternalChange = false;
+    }, 50);
   }
 
   private wrapText(text: string, maxCharsPerLine: number = 24): string[] {
@@ -661,6 +693,7 @@ export class AdCanvasEditor extends LitElement {
           @pointermove=${this.onCanvasPointerMove}
           @pointerup=${this.onCanvasPointerUp}
           @pointerleave=${this.onCanvasPointerUp}
+          @pointerdown=${this.onCanvasPointerDown}
         >
           <svg
             viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
@@ -686,6 +719,7 @@ export class AdCanvasEditor extends LitElement {
               `
             : null}
           ${this.renderPropertiesPanel()}
+          ${this.renderEdgePanel()}  
         </div>
       </div>
     `;
@@ -1328,265 +1362,218 @@ export class AdCanvasEditor extends LitElement {
     };
   }
 
-  private buildArrowPath(
-    endX: number,
-    endY: number,
-    direction: 'up' | 'down' | 'left' | 'right',
-  ) {
+  private buildArrowPath(endX: number, endY: number, direction: 'up' | 'down' | 'left' | 'right'): string {
     const a = 4;
-
-    if (direction === 'down') {
-      return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX + a} ${endY - a} Z`;
-    }
-
-    if (direction === 'up') {
-      return `M ${endX} ${endY} L ${endX - a} ${endY + a} L ${endX + a} ${endY + a} Z`;
-    }
-
-    if (direction === 'left') {
-      return `M ${endX} ${endY} L ${endX + a} ${endY - a} L ${endX + a} ${endY + a} Z`;
-    }
-
-    return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX - a} ${endY + a} Z`;
+    if (direction === 'down') return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX + a} ${endY - a} Z`;
+    if (direction === 'up') return `M ${endX} ${endY} L ${endX - a} ${endY + a} L ${endX + a} ${endY + a} Z`;
+    if (direction === 'left') return `M ${endX} ${endY} L ${endX + a} ${endY - a} L ${endX + a} ${endY + a} Z`;
+    return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX - a} ${endY + a} Z`; // right
   }
 
   private renderPolylineEdge(
     points: Point[],
     direction: 'up' | 'down' | 'left' | 'right',
+    edgeMeta?: { id: string; fromId: string; toId: string }
   ) {
-    if (points.length < 2) {
-      return null;
-    }
-
-    const d = points
-      .map((point, index) =>
-        `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`,
-      )
-      .join(' ');
-
+    if (points.length < 2) return null;
+    const d = points.map((point, index) => (index === 0 ? `M ${point.x} ${point.y}` : `L ${point.x} ${point.y}`)).join(' ');
     const end = points[points.length - 1];
+
+    const isSelected = edgeMeta && this.selectedEdge?.id === edgeMeta.id;
+    const strokeColor = isSelected ? '#3b82f6' : '#111111';
+    const strokeWidth = isSelected ? '2' : '1.1';
 
     return svg`
       <g>
-        <path
-          d=${d}
-          fill="none"
-          stroke="#111111"
-          stroke-width="1.1"
-        />
-        <path
-          d=${this.buildArrowPath(end.x, end.y, direction)}
-          fill="#111111"
-        />
+        <path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+        <path d="${this.buildArrowPath(end.x, end.y, direction)}" fill="${strokeColor}" />
+        ${edgeMeta ? svg`
+          <path d="${d}" fill="none" stroke="transparent" stroke-width="16" style="cursor: pointer; pointer-events: stroke;"
+                @pointerdown="${(e: PointerEvent) => {
+                  e.stopPropagation();
+                  const p1 = points[0];
+                  const p2 = points[points.length - 1];
+                  this.selectedEdge = {
+                    id: edgeMeta.id,
+                    fromId: edgeMeta.fromId,
+                    toId: edgeMeta.toId,
+                    midX: (p1.x + p2.x) / 2,
+                    midY: (p1.y + p2.y) / 2
+                  };
+                  this.selectedNodeId = null;
+                  this.edgePanelOffset = { x: 0, y: 0 };
+                }}" />
+        ` : ''}
       </g>
     `;
   }
 
-  private edgeStraight(x1: number, y1: number, x2: number, y2: number) {
+  private edgeStraight(x1: number, y1: number, x2: number, y2: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
     const midY = (y1 + y2) / 2;
-
     return this.renderPolylineEdge(
-      [
-        { x: x1, y: y1 },
-        { x: x1, y: midY },
-        { x: x2, y: midY },
-        { x: x2, y: y2 },
-      ],
+      [{ x: x1, y: y1 }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: y2 }],
       y2 >= midY ? 'down' : 'up',
+      edgeMeta
     );
   }
 
-  private edgeBranch(startX: number, startY: number, endX: number, endY: number) {
+  private edgeBranch(startX: number, startY: number, endX: number, endY: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
     return this.renderPolylineEdge(
-      [
-        { x: startX, y: startY },
-        { x: endX, y: startY },
-        { x: endX, y: endY },
-      ],
-      endY > startY ? 'down' : 'up'
+      [{ x: startX, y: startY }, { x: endX, y: startY }, { x: endX, y: endY }],
+      endY >= startY ? 'down' : 'up',
+      edgeMeta
     );
   }
 
-  private edgeToMerge(
-    startX: number,
-    startY: number,
-    mergeX: number,
-    mergeY: number,
-  ) {
+  private edgeToMerge(startX: number, startY: number, mergeX: number, mergeY: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
     const half = this.mergeSize / 2;
-
     if (startX < mergeX) {
-      return this.renderPolylineEdge(
-        [
-          { x: startX, y: startY },
-          { x: startX, y: mergeY },
-          { x: mergeX - half, y: mergeY },
-        ],
-        'right',
-      );
+      return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX - half, y: mergeY }], 'right', edgeMeta);
     }
-
     if (startX > mergeX) {
-      return this.renderPolylineEdge(
-        [
-          { x: startX, y: startY },
-          { x: startX, y: mergeY },
-          { x: mergeX + half, y: mergeY },
-        ],
-        'left',
-      );
+      return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX + half, y: mergeY }], 'left', edgeMeta);
     }
-
-    return this.renderPolylineEdge(
-      [
-        { x: startX, y: startY },
-        { x: startX, y: mergeY - half },
-      ],
-      'down',
-    );
+    return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY - half }], 'down', edgeMeta);
   }
 
-    private renderEdges(layout: DerivedLayout) {
+  private renderEdges(layout: DerivedLayout) {
     const paths: unknown[] = [];
+    const findAction = (idx: number | null) => (idx !== null && idx !== undefined ? layout.indexedActions.find((a) => a.actionIndex === idx) ?? null : null);
+    const terminalBranchActions = new Map<number, string>();
 
-    const findAction = (idx: number | null): ActionCanvasNode | null => {
-      if (idx === null || idx === undefined) return null;
-      return layout.indexedActions.find((a) => a.actionIndex === idx) ?? null;
+    layout.mergeNodes.forEach((merge) => {
+      if (merge.yesTerminal && merge.yesTerminal.actionIndex !== null) terminalBranchActions.set(merge.yesTerminal.actionIndex, merge.decisionId);
+      if (merge.noTerminal && merge.noTerminal.actionIndex !== null) terminalBranchActions.set(merge.noTerminal.actionIndex, merge.decisionId);
+    });
+
+    const getH = (node: CanvasNodeBase) => {
+      if (node.type === 'action') {
+        return typeof (this as any).getNodeDynamicHeight === 'function'
+          ? (this as any).getNodeDynamicHeight(node)
+          : this.nodeHeight;
+      }
+      if (node.type === 'decision') return this.decisionSize;
+      return this.nodeHeight;
     };
 
-    const terminalBranchActions = new Map<number, string>();
-    layout.mergeNodes.forEach((merge) => {
-      if (merge.yesTerminal && merge.yesTerminal.actionIndex !== null) {
-        terminalBranchActions.set(merge.yesTerminal.actionIndex, merge.decisionId);
-      }
-      if (merge.noTerminal && merge.noTerminal.actionIndex !== null) {
-        terminalBranchActions.set(merge.noTerminal.actionIndex, merge.decisionId);
-      }
-    });
+    // Pomocná funkcia: Ak hrana bola zmazaná používateľom, ignoruj ju.
+    const addPath = (svgPath: unknown, id: string) => {
+      if (!svgPath || this.deletedEdgeIds.includes(id)) return;
+      paths.push(svgPath);
+    };
 
     if (layout.startNode && layout.indexedActions.length) {
       const firstAction = layout.indexedActions[0];
-      const h = this.getNodeDynamicHeight(firstAction) / 2;
-      paths.push(
-        this.edgeStraight(
-          layout.startNode.x,
-          layout.startNode.y + 10,
-          firstAction.x,
-          firstAction.y - h
-        )
-      );
+      const id = `auto_start_${firstAction.id}`;
+      addPath(this.edgeStraight(layout.startNode.x, layout.startNode.y + 10, firstAction.x, firstAction.y - getH(firstAction) / 2, { id, fromId: 'start', toId: firstAction.id }), id);
     }
 
     layout.indexedActions.forEach((action) => {
-      const relatedDecisions = layout.decisionsBySource.get(action.actionIndex);
-      if (relatedDecisions) {
-        relatedDecisions.forEach((decision) => {
-          const actionH = this.getNodeDynamicHeight(action) / 2;
-          const decisionH = this.getNodeDynamicHeight(decision) / 2;
-          paths.push(
-            this.edgeStraight(action.x, action.y + actionH, decision.x, decision.y - decisionH)
-          );
-        });
-      }
+      const relatedDecisions = layout.decisionsBySource.get(action.actionIndex!) ?? [];
+      relatedDecisions.forEach((decision) => {
+        const id = `auto_${action.id}_${decision.id}`;
+        addPath(this.edgeStraight(action.x, action.y + getH(action) / 2, decision.x, decision.y - this.decisionSize / 2, { id, fromId: action.id, toId: decision.id }), id);
+      });
     });
 
     for (let i = 0; i < layout.indexedActions.length - 1; i++) {
       const from = layout.indexedActions[i];
       const to = layout.indexedActions[i + 1];
+      if (layout.decisionsBySource.has(from.actionIndex!)) continue;
+      if (terminalBranchActions.has(from.actionIndex!)) continue;
 
-      if (layout.decisionsBySource.has(from.actionIndex)) continue;
-      if (terminalBranchActions.has(from.actionIndex)) continue;
+      const fromMark = layout.branchMembership.get(from.actionIndex!);
+      const toMark = layout.branchMembership.get(to.actionIndex!);
+      if (fromMark && toMark && fromMark.decisionId === toMark.decisionId && fromMark.side !== toMark.side) continue;
 
-      const fromMark = layout.branchMembership.get(from.actionIndex);
-      const toMark = layout.branchMembership.get(to.actionIndex);
-      if (fromMark && toMark && (fromMark.decisionId !== toMark.decisionId || fromMark.side !== toMark.side)) {
-        continue;
-      }
+      const id = `auto_${from.id}_${to.id}`;
+      addPath(this.edgeStraight(from.x, from.y + getH(from) / 2, to.x, to.y - getH(to) / 2, { id, fromId: from.id, toId: to.id }), id);
+    }
 
-      const fromH = this.getNodeDynamicHeight(from) / 2;
-      const toH = this.getNodeDynamicHeight(to) / 2;
+    // Explicitné voľné hrany (draw.io štýl)
+    if (this.explicitEdges) {
+      this.explicitEdges.forEach((edge) => {
+        const fromNode = this.nodes.find((n) => n.id === edge.fromId);
+        const toNode = this.nodes.find((n) => n.id === edge.toId);
+        if (!fromNode || !toNode) return;
 
-      paths.push(this.edgeStraight(from.x, from.y + fromH, to.x, to.y - toH));
+        const fromH = getH(fromNode);
+        const toH = getH(toNode);
+
+        if (fromNode.type === 'decision' && edge.portType === 'decision-yes') {
+          paths.push(this.edgeBranch(fromNode.x - this.decisionSize / 2, fromNode.y, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
+        } else if (fromNode.type === 'decision' && edge.portType === 'decision-no') {
+          paths.push(this.edgeBranch(fromNode.x + this.decisionSize / 2, fromNode.y, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
+        } else {
+          paths.push(this.edgeStraight(fromNode.x, fromNode.y + fromH / 2, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
+        }
+      });
     }
 
     layout.decisionNodes.forEach((decision) => {
-      const lines = this.wrapText(decision.condition || 'Decision', 18);
-      const dims = this.getDecisionDimensions(lines);
-      const halfW = dims.halfW;
-
+      const half = this.decisionSize / 2;
       const yesTarget = findAction(decision.yesActionIndex);
       if (yesTarget) {
-        const toH = this.getNodeDynamicHeight(yesTarget) / 2;
-        paths.push(
-          this.edgeBranch(decision.x - halfW, decision.y, yesTarget.x, yesTarget.y - toH)
-        );
+        const id = `auto_${decision.id}_yes_${yesTarget.id}`;
+        addPath(this.edgeBranch(decision.x - half, decision.y, yesTarget.x, yesTarget.y - getH(yesTarget) / 2, { id, fromId: decision.id, toId: yesTarget.id }), id);
       }
 
       const noTarget = findAction(decision.noActionIndex);
       if (noTarget) {
-        const toH = this.getNodeDynamicHeight(noTarget) / 2;
-        paths.push(
-          this.edgeBranch(decision.x + halfW, decision.y, noTarget.x, noTarget.y - toH)
-        );
+        const id = `auto_${decision.id}_no_${noTarget.id}`;
+        addPath(this.edgeBranch(decision.x + half, decision.y, noTarget.x, noTarget.y - getH(noTarget) / 2, { id, fromId: decision.id, toId: noTarget.id }), id);
       }
     });
 
     layout.mergeNodes.forEach((merge) => {
+      const halfM = this.mergeSize / 2;
       if (merge.yesTerminal) {
-        const fromH = this.getNodeDynamicHeight(merge.yesTerminal) / 2;
-        paths.push(
-          this.edgeToMerge(merge.yesTerminal.x, merge.yesTerminal.y + fromH, merge.x, merge.y)
-        );
+        const id = `auto_merge_yes_${merge.yesTerminal.id}_${merge.decisionId}`;
+        addPath(this.edgeToMerge(merge.yesTerminal.x, merge.yesTerminal.y + getH(merge.yesTerminal) / 2, merge.x, merge.y, { id, fromId: merge.yesTerminal.id, toId: merge.decisionId }), id);
       }
       if (merge.noTerminal) {
-        const fromH = this.getNodeDynamicHeight(merge.noTerminal) / 2;
-        paths.push(
-          this.edgeToMerge(merge.noTerminal.x, merge.noTerminal.y + fromH, merge.x, merge.y)
-        );
+        const id = `auto_merge_no_${merge.noTerminal.id}_${merge.decisionId}`;
+        addPath(this.edgeToMerge(merge.noTerminal.x, merge.noTerminal.y + getH(merge.noTerminal) / 2, merge.x, merge.y, { id, fromId: merge.noTerminal.id, toId: merge.decisionId }), id);
       }
-
       if (merge.nextAction) {
-        const toH = this.getNodeDynamicHeight(merge.nextAction) / 2;
-        paths.push(
-          this.edgeStraight(merge.x, merge.y + this.mergeSize / 2, merge.nextAction.x, merge.nextAction.y - toH)
-        );
+        const id = `auto_merge_${merge.decisionId}_${merge.nextAction.id}`;
+        addPath(this.edgeStraight(merge.x, merge.y + halfM, merge.nextAction.x, merge.nextAction.y - getH(merge.nextAction) / 2, { id, fromId: merge.decisionId, toId: merge.nextAction.id }), id);
       } else if (layout.finalNode) {
-        paths.push(
-          this.edgeStraight(merge.x, merge.y + this.mergeSize / 2, layout.finalNode.x, layout.finalNode.y - 11) // Final node radius je cca 11
-        );
+        const id = `auto_merge_${merge.decisionId}_final`;
+        addPath(this.edgeStraight(merge.x, merge.y + halfM, layout.finalNode.x, layout.finalNode.y - 11, { id, fromId: merge.decisionId, toId: 'final' }), id);
       }
     });
 
     if (!layout.mergeNodes.length && layout.finalNode && layout.indexedActions.length) {
       const lastAction = layout.indexedActions[layout.indexedActions.length - 1];
-      const h = this.getNodeDynamicHeight(lastAction) / 2;
-      paths.push(
-        this.edgeStraight(lastAction.x, lastAction.y + h, layout.finalNode.x, layout.finalNode.y - 11)
-      );
+      const id = `auto_${lastAction.id}_final`;
+      addPath(this.edgeStraight(lastAction.x, lastAction.y + getH(lastAction) / 2, layout.finalNode.x, layout.finalNode.y - 11, { id, fromId: lastAction.id, toId: 'final' }), id);
     }
 
-        // Render explicit user-drawn edges (manually connected null-index nodes)
-    this.explicitEdges.forEach(({ fromId, toId }) => {
-      const fromNode = this.nodes.find((n) => n.id === fromId);
-      const toNode = this.nodes.find((n) => n.id === toId);
-      if (!fromNode || !toNode) return;
-      const fromH = this.getNodeDynamicHeight(fromNode);
-      const toH = this.getNodeDynamicHeight(toNode);
-      paths.push(
-        this.edgeStraight(
-          fromNode.x,
-          fromNode.y + fromH / 2,
-          toNode.x,
-          toNode.y - toH / 2
-        )
-      );
-    });
-
     return svg`${paths}`;
-
   }
 
   private onCanvasPointerDown(event: PointerEvent): void {
+      // Zachytenie potiahnutia edge panelu
+    const edgePanelTarget = event.composedPath().find((el) => el instanceof HTMLElement && el.dataset.edgePanel !== undefined) as HTMLElement | undefined;
+    if (edgePanelTarget) {
+      // Ak sme klikli na button, nechceme zacat drag panela, chceme povolit click
+      const isButton = event.composedPath().some(el => el instanceof HTMLButtonElement || (el instanceof HTMLElement && el.tagName.toLowerCase() === 'button'));
+      if (isButton) {
+        return; // Prepusti event az na @click handler tlacidla
+      }
+
+      this.dragState = {
+        kind: 'edge-panel',
+        startX: event.clientX,
+        startY: event.clientY,
+        initialOffsetX: this.edgePanelOffset.x,
+        initialOffsetY: this.edgePanelOffset.y,
+      } as EdgePanelDragState;
+      edgePanelTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
     const portTarget = event.composedPath().find(
       (el) => el instanceof Element && (el as Element).hasAttribute('data-port-type')
     ) as Element | undefined;
@@ -1688,6 +1675,7 @@ export class AdCanvasEditor extends LitElement {
 
     if (!virtualTarget?.dataset.virtualKind) {
       this.selectedNodeId = null;
+      this.selectedEdge = null;
       return;
     }
 
@@ -1831,6 +1819,16 @@ export class AdCanvasEditor extends LitElement {
         [this.dragState.virtualId]: { x: newOffsetX, y: newOffsetY },
       };
     }
+
+    if (this.dragState.kind === 'edge-panel') {
+      const deltaX = event.clientX - this.dragState.startX;
+      const deltaY = event.clientY - this.dragState.startY;
+      this.edgePanelOffset = {
+        x: (this.dragState as any).initialOffsetX + deltaX,
+        y: (this.dragState as any).initialOffsetY + deltaY
+      };
+      return;
+    }
   }
 
   private onCanvasPointerUp(): void {
@@ -1850,7 +1848,7 @@ export class AdCanvasEditor extends LitElement {
       return;
     }
 
-    const { nodeId } = this.dragState;
+    const { nodeId } = this.dragState as RealDragState;
     this.dragState = null;
 
     const nodeIndex = this.nodes.findIndex((n) => n.id === nodeId);
@@ -1875,137 +1873,13 @@ export class AdCanvasEditor extends LitElement {
     const targetNode = this.nodes.find((n) => n.id === targetId);
     if (!sourceNode || !targetNode) return;
 
-    if (portType === 'action-out' && targetNode.type === 'decision') {
-      const actionIndex = (sourceNode as ActionCanvasNode).actionIndex;
-      this.nodes = this.nodes.map((n) =>
-        n.id === targetId
-          ? ({ ...n, sourceActionIndex: actionIndex } as DecisionCanvasNode)
-          : n
-      );
-
-    } else if (portType === 'action-out' && targetNode.type === 'action') {
-      const sourceAction = sourceNode as ActionCanvasNode;
-      const targetAction = targetNode as ActionCanvasNode;
-      const sourceIdx = sourceAction.actionIndex;
-      const targetIdx = targetAction.actionIndex;
-
-      if (sourceIdx === null && targetIdx === null) {
-        // Both unconnected — keep actionIndex null, just record an explicit edge.
-        // This way they never enter the sequential auto-edge pipeline and
-        // won't disturb existing connectors or the start/final node placement.
-        const alreadyExists = this.explicitEdges.some(
-          (e) => e.fromId === sourceId && e.toId === targetId
-        );
-        if (!alreadyExists) {
-          this.explicitEdges = [...this.explicitEdges, { fromId: sourceId, toId: targetId }];
-        }
-        // No shiftDecisionIndexes needed — we only appended, nothing shifted
-
-      } else if (sourceIdx === null && targetIdx !== null) {
-        // Source is unconnected — insert source directly AFTER target
-        // This means: shift all nodes with index > targetIdx up by 1, assign source = targetIdx + 1
-        const insertAt = targetIdx + 1;
-        this.nodes = this.nodes.map((n) => {
-          if (n.type !== 'action') return n;
-          const a = n as ActionCanvasNode;
-          if (n.id === sourceId) return { ...a, actionIndex: insertAt };
-          if (a.actionIndex !== null && a.actionIndex >= insertAt) {
-            return { ...a, actionIndex: a.actionIndex + 1 };
-          }
-          return n;
-        });
-        this.shiftDecisionIndexes(insertAt, 1);
-
-      } else if (sourceIdx !== null && targetIdx === null) {
-        // Target is unconnected — insert target directly AFTER source
-        // Shift all nodes with index > sourceIdx up by 1, then assign target = sourceIdx + 1
-        const insertAt = sourceIdx + 1;
-        this.nodes = this.nodes.map((n) => {
-          if (n.type !== 'action') return n;
-          const a = n as ActionCanvasNode;
-          if (n.id === targetId) return { ...a, actionIndex: insertAt };
-          if (a.actionIndex !== null && a.actionIndex >= insertAt) {
-            return { ...a, actionIndex: a.actionIndex + 1 };
-          }
-          return n;
-        });
-        this.shiftDecisionIndexes(insertAt, 1);
-
-      } else if (sourceIdx !== null && targetIdx !== null) {
-        // Both connected — reorder so source is directly before target
-        if (sourceIdx === targetIdx) return;
-        const minIdx = Math.min(sourceIdx, targetIdx);
-        const maxIdx = Math.max(sourceIdx, targetIdx);
-        const movingDown = sourceIdx < targetIdx;
-
-        this.nodes = this.nodes.map((n) => {
-          if (n.type !== 'action') return n;
-          const a = n as ActionCanvasNode;
-          const idx = a.actionIndex;
-          if (idx === null) return n;
-          if (n.id === sourceId) return { ...a, actionIndex: movingDown ? targetIdx - 1 : targetIdx + 1 };
-          if (idx > minIdx && idx <= maxIdx) return { ...a, actionIndex: movingDown ? idx - 1 : idx + 1 };
-          return n;
-        });
-
-        // Update decision references after reorder
-        this.nodes = this.nodes.map((n) => {
-          if (n.type !== 'decision') return n;
-          const d = n as DecisionCanvasNode;
-          const remap = (idx: number | null): number | null => {
-            if (idx === null) return null;
-            if (idx === sourceIdx) return movingDown ? targetIdx - 1 : targetIdx + 1;
-            if (idx > minIdx && idx <= maxIdx) return movingDown ? idx - 1 : idx + 1;
-            return idx;
-          };
-          return {
-            ...d,
-            sourceActionIndex: remap(d.sourceActionIndex),
-            yesActionIndex: remap(d.yesActionIndex),
-            noActionIndex: remap(d.noActionIndex),
-          } as DecisionCanvasNode;
-        });
-      }
-
-    } else if (portType === 'decision-yes' && targetNode.type === 'action') {
-      const actionIndex = (targetNode as ActionCanvasNode).actionIndex;
-      this.nodes = this.nodes.map((n) =>
-        n.id === sourceId
-          ? ({ ...n, yesActionIndex: actionIndex } as DecisionCanvasNode)
-          : n
-      );
-
-    } else if (portType === 'decision-no' && targetNode.type === 'action') {
-      const actionIndex = (targetNode as ActionCanvasNode).actionIndex;
-      this.nodes = this.nodes.map((n) =>
-        n.id === sourceId
-          ? ({ ...n, noActionIndex: actionIndex } as DecisionCanvasNode)
-          : n
-      );
-    }
+    const edgeId = `explicit_${sourceId}_${targetId}_${Date.now()}`;
+    this.explicitEdges = [...this.explicitEdges, { id: edgeId, fromId: sourceId, toId: targetId, portType }];
 
     this.emitStructureChange();
   }
 
-    // Shifts all decision node index references that are >= fromIndex up by 'amount'
-  private shiftDecisionIndexes(fromIndex: number, amount: number): void {
-    this.nodes = this.nodes.map((n) => {
-      if (n.type !== 'decision') return n;
-      const d = n as DecisionCanvasNode;
-      const shift = (idx: number | null): number | null => {
-        if (idx === null) return null;
-        return idx >= fromIndex ? idx + amount : idx;
-      };
-      return {
-        ...d,
-        sourceActionIndex: shift(d.sourceActionIndex),
-        yesActionIndex: shift(d.yesActionIndex),
-        noActionIndex: shift(d.noActionIndex),
-      } as DecisionCanvasNode;
-    });
-  }
-
-    private renderConnectingLine() {
+  private renderConnectingLine() {
     if (!this.dragState || this.dragState.kind !== 'connecting') return null;
     const ds = this.dragState as ConnectingDragState;
     const sourceNode = this.nodes.find((n) => n.id === ds.sourceNodeId);
@@ -2039,6 +1913,43 @@ export class AdCanvasEditor extends LitElement {
       />
       <circle cx="${ds.currentX}" cy="${ds.currentY}" r="4" fill="${color}" pointer-events="none" />
     `;
+  }
+
+    private renderEdgePanel(): TemplateResult | null {
+    if (!this.selectedEdge) return null;
+    const x = this.selectedEdge.midX + this.edgePanelOffset.x + 20;
+    const y = this.selectedEdge.midY + this.edgePanelOffset.y - 20;
+
+    return html`
+      <div data-edge-panel
+           style="position: absolute; left: ${x}px; top: ${y}px; background: white; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10; display: flex; cursor: grab; user-select: none;">
+        <button @click="${this.onDeleteSelectedEdge}"
+                style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #fca5a5; background: #fee2e2; color: #dc2626; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+          </svg>
+          Delete
+        </button>
+      </div>
+    `;
+  }
+
+  private onDeleteSelectedEdge(): void {
+    if (!this.selectedEdge) return;
+    const { id } = this.selectedEdge;
+
+    if (id.startsWith('explicit_')) {
+      // Zmazanie manuálne nakreslenej (voľnej) hrany
+      this.explicitEdges = this.explicitEdges.filter(e => e.id !== id);
+    } else {
+      // Zmazanie akejkoľvek inej (automatickej) hrany
+      if (!this.deletedEdgeIds.includes(id)) {
+        this.deletedEdgeIds = [...this.deletedEdgeIds, id];
+      }
+    }
+
+    this.selectedEdge = null;
+    this.emitStructureChange();
   }
 
   private onPanelTextChange(nodeId: string, value: string): void {
