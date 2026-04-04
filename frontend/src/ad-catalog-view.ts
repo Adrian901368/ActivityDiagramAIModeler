@@ -914,8 +914,6 @@ export class AdCatalogView extends LitElement {
     if (!v) return null;
 
     const diagramUrl = this.getDiagramUrl(v);
-    const promptPretty =
-      v.prompt != null ? JSON.stringify(v.prompt, null, 2) : null;
 
     return html`
       <div style="margin-top: 8px;">
@@ -943,24 +941,11 @@ ${v.plantuml_code}
                 is empty).
               </div>
             `}
-
-        <div style="margin-top: 10px;">
-          <div class="card-subtitle">Prompt JSON for selected version</div>
-          ${promptPretty
-            ? html`<pre>
-${promptPretty}
-          </pre>`
-            : html`<div class="placeholder small" style="margin-top: 4px;">
-                No prompt JSON stored for this version (prompt is null or
-                empty).
-              </div>`}
-        </div>
       </div>
     `;
   }
 
   // ===== EDIT VIEW =====
-
   private renderEditView() {
     const title =
       this.editMode === 'create' ? 'Create new version' : 'Update draft version';
@@ -969,9 +954,6 @@ ${promptPretty}
         ? 'Provide a refined text description of the process. The backend will regenerate the PlantUML diagram for this new version.'
         : 'Update the text description for this draft version. PlantUML will be regenerated on the backend from your description.';
     const processName = this.editProcessName || 'Unknown process';
-
-    const promptPlaceholder =
-      '{\n  "process_name": "...",\n  "domain": "...",\n  "actors": [...],\n  "actions": [...],\n  "decisions": [...]\n}';
 
     return html`
       <section class="card">
@@ -1011,16 +993,6 @@ ${promptPretty}
             .value=${this.editDescriptionCurrent}
             @input=${this.onEditDescriptionChange}
             placeholder="Describe the process step-by-step for this version. The backend will regenerate the UML Activity diagram from this description."
-          ></textarea>
-        </div>
-
-        <div style="margin-top: 8px;">
-          <label for="editPromptJson">Prompt JSON (optional, editable)</label>
-          <textarea
-            id="editPromptJson"
-            .value=${this.editPromptText}
-            @input=${this.onEditPromptJsonChange}
-            placeholder=${promptPlaceholder}
           ></textarea>
         </div>
 
@@ -1302,11 +1274,6 @@ ${this.editGeneratedPlantuml}
   private onEditDescriptionChange(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.editDescriptionCurrent = target.value;
-  }
-
-  private onEditPromptJsonChange(event: Event): void {
-    const target = event.target as HTMLTextAreaElement;
-    this.editPromptText = target.value;
   }
 
   private onRevertEditClick(): void {
