@@ -539,6 +539,8 @@ export class AdCatalogView extends LitElement {
   @state() private editPromptJson: any = null;
   @state() private editPromptText = '';
 
+  @state() private isPlantUmlExpanded = false;
+
   override firstUpdated(): void {
     this.loadProcesses();
   }
@@ -954,103 +956,141 @@ ${v.plantuml_code}
         ? 'Provide a refined text description of the process. The backend will regenerate the PlantUML diagram for this new version.'
         : 'Update the text description for this draft version. PlantUML will be regenerated on the backend from your description.';
     const processName = this.editProcessName || 'Unknown process';
-
-    return html`
-      <section class="card">
-        <div class="edit-header">
-          <div>
-            <div class="edit-title">${title}</div>
-            <div class="edit-subtitle">${subtitle}</div>
-          </div>
-          <button class="text" @click=${this.onBackToCatalogClick}>
-            ← Back to catalog
-          </button>
-        </div>
-
-        <div class="edit-meta">
-          Process: <strong>${processName}</strong>
-          ${this.editMode === 'update' && this.editVersionNumber !== null
-            ? html` · Draft version #${this.editVersionNumber}`
-            : null}
-        </div>
-
-        <div style="margin-bottom: 8px;">
-          <label for="editVersionLabel">Version name (optional)</label>
-          <input
-            id="editVersionLabel"
-            type="text"
-            .value=${this.editVersionLabel}
-            @input=${this.onEditVersionLabelChange}
-            placeholder="e.g. ver 2 – improved decision branch"
-            autocomplete="off"
-          />
-        </div>
-
-        <div>
-          <label for="editDescription">Process description</label>
-          <textarea
-            id="editDescription"
-            .value=${this.editDescriptionCurrent}
-            @input=${this.onEditDescriptionChange}
-            placeholder="Describe the process step-by-step for this version. The backend will regenerate the UML Activity diagram from this description."
-          ></textarea>
-        </div>
-
-        ${this.editError ? html`<div class="error">${this.editError}</div>` : null}
-
-        <div class="edit-actions">
-          <button
-            class="secondary"
-            @click=${this.onRevertEditClick}
-            ?disabled=${this.isGenerating ||
-            this.editDescriptionCurrent === this.editDescriptionOriginal}
-          >
-            Revert
-          </button>
-          <button
-            class="primary"
-            @click=${this.onEditGenerateClick}
-            ?disabled=${this.isGenerating ||
-            !this.editDescriptionCurrent.trim() ||
-            this.editMode === null ||
-            this.editProcessId === null}
-          >
-            ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
-          </button>
-        </div>
-
-        ${this.renderEditGeneratedPlantuml()}
-      </section>
-    `;
-  }
-
-  private renderEditGeneratedPlantuml() {
-    if (!this.editGeneratedPlantuml.trim()) {
-      return html`<div class="placeholder small" style="margin-top: 8px;">
-        Generated PlantUML code for this version will appear here after you
-        click <strong>Generate diagram</strong>.
-      </div>`;
-    }
     const saveLabel =
       this.editMode === 'create' ? 'Save as new version' : 'Save draft version';
+
     return html`
-      <div style="margin-top: 10px;">
-        <div class="card-subtitle">Generated PlantUML for this version</div>
-        <pre>
-${this.editGeneratedPlantuml}
-        </pre>
-        <div class="edit-actions">
-          <button
-            class="primary"
-            @click=${this.onEditSaveClick}
-            ?disabled=${this.isGenerating ||
-            !this.editGeneratedPlantuml.trim() ||
-            this.editMode === null ||
-            this.editProcessId === null}
-          >
-            ${saveLabel}
-          </button>
-        </div>
+      <div style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
+        
+        <!-- CARD 1: DESCRIPTION & INPUTS -->
+        <section class="card">
+          <div class="edit-header">
+            <div>
+              <div class="edit-title">${title}</div>
+              <div class="edit-subtitle">${subtitle}</div>
+            </div>
+            <button class="text" @click=${this.onBackToCatalogClick}>
+              ← Back to catalog
+            </button>
+          </div>
+
+          <div class="edit-meta">
+            Process: <strong>${processName}</strong>
+            ${this.editMode === 'update' && this.editVersionNumber !== null
+              ? html` · Draft version #${this.editVersionNumber}`
+              : null}
+          </div>
+
+          <div style="margin-bottom: 8px;">
+            <label for="editVersionLabel">Version name (optional)</label>
+            <input
+              id="editVersionLabel"
+              type="text"
+              .value=${this.editVersionLabel}
+              @input=${this.onEditVersionLabelChange}
+              placeholder="e.g. ver 2 – improved decision branch"
+              autocomplete="off"
+            />
+          </div>
+
+          <div>
+            <label for="editDescription">Process description</label>
+            <textarea
+              id="editDescription"
+              .value=${this.editDescriptionCurrent}
+              @input=${this.onEditDescriptionChange}
+              placeholder="Describe the process step-by-step for this version."
+            ></textarea>
+          </div>
+
+          ${this.editError ? html`<div class="error">${this.editError}</div>` : null}
+
+          <div class="edit-actions" style="justify-content: flex-start; margin-top: 16px; gap: 12px;">
+            <button
+              class="primary"
+              @click=${this.onEditGenerateClick}
+              ?disabled=${this.isGenerating ||
+              !this.editDescriptionCurrent.trim() ||
+              this.editMode === null ||
+              this.editProcessId === null}
+            >
+              ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
+            </button>
+            <button
+              class="secondary"
+              @click=${this.onEditSaveClick}
+              ?disabled=${this.isGenerating ||
+              !this.editGeneratedPlantuml.trim() ||
+              this.editMode === null ||
+              this.editProcessId === null}
+            >
+              ${saveLabel}
+            </button>
+            <button
+              class="text"
+              @click=${this.onRevertEditClick}
+              ?disabled=${this.isGenerating ||
+              this.editDescriptionCurrent === this.editDescriptionOriginal}
+            >
+              Revert
+            </button>
+          </div>
+        </section>
+
+        <!-- CARD 2: CANVAS EDITOR -->
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Visual canvas editor (beta)</div>
+              <div class="card-subtitle" style="font-size: 12px; color: #6b7280;">
+                Drag UML activity nodes between swimlanes and reorder them visually.
+              </div>
+            </div>
+          </div>
+
+          <ad-canvas-editor
+            @structure-change=${this.onCanvasStructureChange}
+          ></ad-canvas-editor>
+
+          <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">
+            Use the toolbar inside the canvas to add actions and arrange them. The editor emits a structured representation compatible with your backend model.
+          </div>
+        </section>
+
+        <!-- CARD 3: EXPANDABLE PLANTUML -->
+        <section class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <div>
+              <div class="card-title" style="font-size: 14px; font-weight: 500; color: #d1d5db;">
+                Generated PlantUML
+              </div>
+              <div class="card-subtitle" style="font-size: 11px; color: #6b7280;">
+                Inspect the PlantUML code generated by the LLM before saving it.
+              </div>
+            </div>
+            <button
+              class="secondary"
+              style="font-size: 12px; padding: 6px 12px;"
+              ?disabled=${!this.editGeneratedPlantuml}
+              @click=${this.onTogglePlantUmlClick}
+            >
+              ${this.isPlantUmlExpanded ? 'Hide code' : 'Show code'}
+            </button>
+          </div>
+
+          ${this.isPlantUmlExpanded
+            ? html`
+                <div style="margin-top: 12px;">
+                  ${this.editGeneratedPlantuml
+                    ? html`<pre>${this.editGeneratedPlantuml}</pre>`
+                    : html`<div class="placeholder small">
+                        Generated PlantUML code will appear here after you click <strong>Generate diagram</strong>.
+                      </div>`}
+                </div>
+              `
+            : null}
+        </section>
+
       </div>
     `;
   }
@@ -1233,9 +1273,12 @@ ${this.editGeneratedPlantuml}
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = base ? base.plantuml_code : '';
-    this.editPromptJson = null;
-    this.editPromptText = '';
+    this.editPromptJson = base ? base.prompt : null;
+    this.editPromptText = base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
     this.editError = '';
+    this.isPlantUmlExpanded = false;
+
+    this.initCanvasStructure(this.editPromptJson);
   }
 
   private onUpdateVersionClick(v: CatalogVersion): void {
@@ -1253,6 +1296,9 @@ ${this.editGeneratedPlantuml}
     this.editPromptText =
       v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
     this.editError = '';
+    this.isPlantUmlExpanded = false;
+
+    this.initCanvasStructure(this.editPromptJson);
   }
 
   private onBackToCatalogClick(): void {
@@ -1265,6 +1311,47 @@ ${this.editGeneratedPlantuml}
   }
 
   // ===== HANDLERS: EDIT FORM =====
+  private onTogglePlantUmlClick(): void {
+    this.isPlantUmlExpanded = !this.isPlantUmlExpanded;
+  }
+
+  private onCanvasStructureChange(e: CustomEvent): void {
+    try {
+      this.editPromptText = JSON.stringify(e.detail, null, 2);
+    } catch {
+      // Ignore serialization errors
+    }
+  }
+
+  private async initCanvasStructure(prompt: any) {
+    await this.updateComplete;
+    const canvas = this.renderRoot?.querySelector('ad-canvas-editor') as any;
+    if (canvas && typeof canvas.setStructure === 'function') {
+      if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
+        const structure = {
+          actors: prompt.actors as string[],
+          actions: (prompt.actions as any[]).map((a: any) => ({
+            actor: a.actor,
+            action: a.action,
+          })),
+          decisions: Array.isArray(prompt.decisions)
+            ? (prompt.decisions as any[]).map((d: any) => ({
+                condition: d.condition,
+                branchyes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+                branchno: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+                yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
+                no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
+              }))
+            : null,
+          parallelblocks: null,
+        };
+        canvas.setStructure(structure);
+      } else {
+        canvas.setStructure({ actors: [], actions: [], decisions: [] });
+      }
+    }
+  }
+
 
   private onEditVersionLabelChange(event: Event): void {
     const target = event.target as HTMLInputElement;
@@ -1334,6 +1421,9 @@ ${this.editGeneratedPlantuml}
       this.editPromptJson = data.prompt ?? null;
       this.editPromptText =
         data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
+
+      this.isPlantUmlExpanded = true;
+      this.initCanvasStructure(this.editPromptJson);
     } catch (error: unknown) {
       console.error('Failed to generate diagram from text', error);
       this.editError =
