@@ -93,15 +93,8 @@ interface ConnectingDragState {
   currentY: number;
 }
 
-interface EdgePanelDragState {
-  kind: 'edge-panel';
-  startX: number;
-  startY: number;
-  initialOffsetX: number;
-  initialOffsetY: number;
-}
-
-type DragState = RealDragState | VirtualDragState | DividerDragState | ConnectingDragState | EdgePanelDragState;
+// EdgePanelDragState removed because panels are static now
+type DragState = RealDragState | VirtualDragState | DividerDragState | ConnectingDragState;
 
 type BranchSide = 'yes' | 'no';
 
@@ -159,13 +152,15 @@ export class AdCanvasEditor extends LitElement {
       border: 1px solid #d1d5db;
       background: #f9fafb;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 10px;
+      padding: 8px 12px;
       border-bottom: 1px solid #e5e7eb;
       background: #f3f4f6;
     }
@@ -191,7 +186,7 @@ export class AdCanvasEditor extends LitElement {
 
     .toolbar {
       display: inline-flex;
-      gap: 4px;
+      gap: 6px;
       align-items: center;
     }
 
@@ -200,12 +195,14 @@ export class AdCanvasEditor extends LitElement {
       border: 1px solid #d1d5db;
       background: #ffffff;
       color: #374151;
-      font-size: 10px;
-      padding: 3px 7px;
+      font-size: 11px;
+      padding: 4px 10px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      font-weight: 500;
+      transition: all 0.15s;
     }
 
     .btn:hover {
@@ -213,12 +210,28 @@ export class AdCanvasEditor extends LitElement {
       border-color: #9ca3af;
     }
 
-    .canvas-container {
-      position: relative;
-      width: 100%;
+    .editor-body {
+      display: flex;
+      flex-direction: row;
       height: 560px;
+    }
+
+    .canvas-container {
+      flex: 1;
+      position: relative;
       background: #ffffff;
       overflow: auto;
+    }
+
+    .sidebar {
+      width: 260px;
+      background: #f9fafb;
+      border-left: 1px solid #e5e7eb;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
     }
 
     svg {
@@ -247,21 +260,28 @@ export class AdCanvasEditor extends LitElement {
       line-height: 1.4;
     }
     
-        .properties-panel {
-      position: absolute;
-      top: 52px;
-      right: 12px;
-      width: 220px;
+    .static-panel {
       background: #ffffff;
       border: 1px solid #d1d5db;
-      border-radius: 10px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+      border-radius: 8px;
       padding: 12px;
-      z-index: 10;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
+      transition: all 0.2s ease-in-out;
     }
+
+    .static-panel.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+      background: #f3f4f6;
+    }
+
+    .static-panel.active {
+      border-color: #3b82f6;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.12);
+    }
+
     .panel-title {
       font-size: 10px;
       font-weight: 700;
@@ -270,19 +290,26 @@ export class AdCanvasEditor extends LitElement {
       color: #6b7280;
       margin-bottom: 2px;
     }
+
+    .static-panel.active .panel-title {
+      color: #3b82f6;
+    }
+
     .panel-field {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 4px;
     }
+
     .panel-field label {
       font-size: 10px;
       color: #6b7280;
       font-weight: 500;
     }
+
     .panel-field input, .panel-field select {
       font-size: 11px;
-      padding: 5px 8px;
+      padding: 6px 8px;
       border: 1px solid #d1d5db;
       border-radius: 6px;
       outline: none;
@@ -291,19 +318,21 @@ export class AdCanvasEditor extends LitElement {
       font-family: system-ui, -apple-system, sans-serif;
       transition: border-color 0.15s;
     }
+
     .panel-field input:focus, .panel-field select:focus {
       border-color: #3b82f6;
       background: #ffffff;
     }
+
     .panel-divider {
       height: 1px;
       background: #f3f4f6;
-      margin: 2px 0;
+      margin: 4px 0;
     }
+
     .panel-delete-btn {
-      margin-top: 2px;
-      padding: 5px 8px;
-      font-size: 10px;
+      padding: 6px 8px;
+      font-size: 11px;
       font-weight: 600;
       color: #dc2626;
       background: #fef2f2;
@@ -313,6 +342,7 @@ export class AdCanvasEditor extends LitElement {
       text-align: center;
       transition: background 0.15s;
     }
+
     .panel-delete-btn:hover {
       background: #fee2e2;
     }  
@@ -328,25 +358,17 @@ export class AdCanvasEditor extends LitElement {
   @state() private mergeOffsets: Record<string, Point> = {};
 
   @state() private selectedNodeId: string | null = null;
-
-  @state() private panelOffset: Point = { x: 0, y: 0 };
   @state() private hoveredNodeId: string | null = null;
   @state() private explicitEdges: Array<{ id: string; fromId: string; toId: string; portType: string }> = [];
 
   @state() private selectedEdge: { id: string; fromId: string; toId: string; midX: number; midY: number } | null = null;
-  @state() private edgePanelOffset: Point = { x: 0, y: 0 };
-
   @state() private deletedEdgeIds: string[] = [];
-
-  private panelDrag: { startMouseX: number; startMouseY: number; startOffsetX: number; startOffsetY: number } | null = null;
-
 
   private defaultLaneWidth = 420;
   private minLaneWidth = 260;
   private lanePaddingX = 120;
   private laneHeaderHeight = 44;
 
-  //private nodeWidth = 150;
   private nodeHeight = 24;
   private decisionSize = 22;
   private mergeSize = 18;
@@ -498,9 +520,6 @@ export class AdCanvasEditor extends LitElement {
     });
 
     // PASS 4: Normalization - ensure NO action node sits above a previous one in sequence
-    // This fixes the case where branch targets were pushed DOWN in Pass 3,
-    // but subsequent sequential action nodes (e.g. "Display confirmation")
-    // still have their old lower Y from Pass 1 and visually appear ABOVE the pushed branch nodes.
     const sortedByIndex = [...actionNodesByIndex.values()].sort(
       (a, b) => (a.actionIndex ?? 0) - (b.actionIndex ?? 0)
     );
@@ -508,11 +527,9 @@ export class AdCanvasEditor extends LitElement {
     let minNextY = baseY;
     sortedByIndex.forEach((action) => {
       const h = this.getNodeDynamicHeight(action);
-      // If this action ended up above the minimum safe Y, push it down
       if (action.y < minNextY) {
         action.y = minNextY;
       }
-      // Next action in sequence must start below this one's bottom edge + gap
       minNextY = action.y + h + this.nodeVerticalGap;
     });
 
@@ -524,14 +541,12 @@ export class AdCanvasEditor extends LitElement {
     this.emitStructureChange();
   }
 
-    public getStructure(): ProcessStructureInputDto {
+  public getStructure(): ProcessStructureInputDto {
     const actors = [...new Set(this.actors.length ? this.actors : ['Actor'])];
     const orderedNodes = [...this.nodes].sort((a, b) => a.y - b.y);
 
     const actionNodes = orderedNodes.filter((n) => n.type === 'action');
 
-    // KĽÚČOVÝ FIX: Dynamický prekladač indexov.
-    // Zistí, na ktorom indexe sa uzol reálne nachádza teraz, bez ohľadu na to, čo bolo predtým.
     const getNewIndex = (oldIndex: number | null): number | null => {
       if (oldIndex === null || oldIndex === undefined) return null;
       const originalNode = this.nodes.find(n => n.type === 'action' && (n as ActionCanvasNode).actionIndex === oldIndex);
@@ -567,7 +582,7 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private emitStructureChange(): void {
-    this.isInternalChange = true; // Zaznačíme, že zmena prišla zvnútra editora
+    this.isInternalChange = true;
     this.dispatchEvent(
       new CustomEvent('structure-change', {
         detail: this.getStructure(),
@@ -575,7 +590,6 @@ export class AdCanvasEditor extends LitElement {
         composed: true,
       })
     );
-    // Dáme aplikácii čas na spracovanie eventu, kým poistku uvoľníme
     setTimeout(() => {
       this.isInternalChange = false;
     }, 50);
@@ -608,19 +622,15 @@ export class AdCanvasEditor extends LitElement {
     const minWidth = 40;
     const longestLine = [...lines].sort((a, b) => b.length - a.length)[0] || '';
     const estimatedWidth = Math.max(minWidth, longestLine.length * 5.5 + 16);
-
     const height = (lines.length * 14) + 16;
-
     return { width: estimatedWidth, height };
   }
 
   private getDecisionDimensions(lines: string[]): { width: number; height: number; halfW: number; halfH: number; edgeOffset: number } {
-    const edgeOffset = 12; // Zrezany roh
+    const edgeOffset = 12;
     const minWidth = 20 + (edgeOffset * 2);
-
     const longestLine = [...lines].sort((a, b) => b.length - a.length)[0] || '';
     const estimatedWidth = Math.max(minWidth, (longestLine.length * 5.5) + 8 + (edgeOffset * 2));
-
     const height = (lines.length * 14) + 20;
 
     return {
@@ -650,8 +660,7 @@ export class AdCanvasEditor extends LitElement {
     const layout = this.buildDerivedLayout();
 
     const realNodeBottom = this.nodes.length
-      ? Math.max(...this.nodes.map((n) => n.y)) +
-        Math.max(this.nodeHeight, this.decisionSize)
+      ? Math.max(...this.nodes.map((n) => n.y)) + Math.max(this.nodeHeight, this.decisionSize)
       : this.laneHeaderHeight + 240;
 
     const mergeBottom = layout.mergeNodes.length
@@ -688,42 +697,188 @@ export class AdCanvasEditor extends LitElement {
           </div>
         </div>
 
-        <div
-          class="canvas-container"
-          @pointermove=${this.onCanvasPointerMove}
-          @pointerup=${this.onCanvasPointerUp}
-          @pointerleave=${this.onCanvasPointerUp}
-          @pointerdown=${this.onCanvasPointerDown}
-        >
-          <svg
-            viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
-            width=${totalWidth}
-            height=${totalHeight}
+        <div class="editor-body">
+          <div
+            class="canvas-container"
+            @pointermove=${this.onCanvasPointerMove}
+            @pointerup=${this.onCanvasPointerUp}
+            @pointerleave=${this.onCanvasPointerUp}
             @pointerdown=${this.onCanvasPointerDown}
           >
-            ${this.renderSwimlanes(totalHeight)}
-            ${this.renderEdges(layout)}
-            ${this.renderVirtualNodes(layout)} 
-            ${this.renderConnectingLine()}
-            ${this.renderNodes()}
-          </svg>
+            <svg
+              viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
+              width=${totalWidth}
+              height=${totalHeight}
+              @pointerdown=${this.onCanvasPointerDown}
+            >
+              ${this.renderSwimlanes(totalHeight)}
+              ${this.renderEdges(layout)}
+              ${this.renderVirtualNodes(layout)} 
+              ${this.renderConnectingLine()}
+              ${this.renderNodes()}
+            </svg>
 
-          ${this.actors.length === 0 && this.nodes.length === 0
-            ? html`
-                <div class="empty-overlay">
-                  <div class="empty-text">
-                    No actors or actions yet. Load structure using
-                    <code>setStructure()</code>.
+            ${this.actors.length === 0 && this.nodes.length === 0
+              ? html`
+                  <div class="empty-overlay">
+                    <div class="empty-text">
+                      No actors or actions yet. Load structure using
+                      <code>setStructure()</code>.
+                    </div>
                   </div>
-                </div>
-              `
-            : null}
-          ${this.renderPropertiesPanel()}
-          ${this.renderEdgePanel()}  
+                `
+              : null}
+          </div>
+
+          <div class="sidebar">
+            ${this.renderActionPanel()}
+            ${this.renderDecisionPanel()}
+            ${this.renderEdgePanel()}
+          </div>
         </div>
       </div>
     `;
   }
+
+  // --- NEW SIDEBAR PANELS ---
+
+  private renderActionPanel() {
+    const node = this.nodes.find((n) => n.id === this.selectedNodeId);
+    const isActive = node?.type === 'action';
+    const actionNode = isActive ? (node as ActionCanvasNode) : null;
+
+    return html`
+      <div class="static-panel ${isActive ? 'active' : 'disabled'}">
+        <div class="panel-title">Action Node</div>
+
+        <div class="panel-field">
+          <label>Label</label>
+          <input
+            type="text"
+            .value="${actionNode?.text || ''}"
+            placeholder="${isActive ? '' : 'Select an action'}"
+            ?disabled="${!isActive}"
+            @input="${(e: Event) => isActive && node && this.onPanelTextChange(node.id, (e.target as HTMLInputElement).value)}"
+          />
+        </div>
+
+        <div class="panel-field">
+          <label>Actor (Swimlane)</label>
+          <select
+            .value="${actionNode?.actor || ''}"
+            ?disabled="${!isActive}"
+            @change="${(e: Event) => isActive && node && this.onPanelActorChange(node.id, (e.target as HTMLSelectElement).value)}"
+          >
+            ${this.actors.map(
+              (actor) => html`
+                <option value="${actor}" ?selected="${actor === actionNode?.actor}">
+                  ${actor}
+                </option>
+              `
+            )}
+          </select>
+        </div>
+
+        ${isActive && node ? html`
+          <div class="panel-divider"></div>
+          <div class="panel-delete-btn" @click="${() => this.onPanelDeleteNode(node.id)}">
+            🗑 Delete action
+          </div>
+        ` : null}
+      </div>
+    `;
+  }
+
+  private renderDecisionPanel() {
+    const node = this.nodes.find((n) => n.id === this.selectedNodeId);
+    const isActive = node?.type === 'decision';
+    const decisionNode = isActive ? (node as DecisionCanvasNode) : null;
+
+    return html`
+      <div class="static-panel ${isActive ? 'active' : 'disabled'}">
+        <div class="panel-title">Decision Node</div>
+
+        <div class="panel-field">
+          <label>Condition</label>
+          <input
+            type="text"
+            .value="${decisionNode?.condition || ''}"
+            placeholder="${isActive ? '' : 'Select a decision'}"
+            ?disabled="${!isActive}"
+            @input="${(e: Event) => isActive && node && this.onPanelConditionChange(node.id, (e.target as HTMLInputElement).value)}"
+          />
+        </div>
+
+        <div class="panel-field">
+          <label>Yes branch label</label>
+          <input
+            type="text"
+            .value="${decisionNode?.yesText || ''}"
+            ?disabled="${!isActive}"
+            @input="${(e: Event) => isActive && node && this.onPanelYesTextChange(node.id, (e.target as HTMLInputElement).value)}"
+          />
+        </div>
+
+        <div class="panel-field">
+          <label>No branch label</label>
+          <input
+            type="text"
+            .value="${decisionNode?.noText || ''}"
+            ?disabled="${!isActive}"
+            @input="${(e: Event) => isActive && node && this.onPanelNoTextChange(node.id, (e.target as HTMLInputElement).value)}"
+          />
+        </div>
+
+        <div class="panel-field">
+          <label>Actor (Swimlane)</label>
+          <select
+            .value="${decisionNode?.actor || ''}"
+            ?disabled="${!isActive}"
+            @change="${(e: Event) => isActive && node && this.onPanelActorChange(node.id, (e.target as HTMLSelectElement).value)}"
+          >
+            ${this.actors.map(
+              (actor) => html`
+                <option value="${actor}" ?selected="${actor === decisionNode?.actor}">
+                  ${actor}
+                </option>
+              `
+            )}
+          </select>
+        </div>
+
+        ${isActive && node ? html`
+          <div class="panel-divider"></div>
+          <div class="panel-delete-btn" @click="${() => this.onPanelDeleteNode(node.id)}">
+            🗑 Delete decision
+          </div>
+        ` : null}
+      </div>
+    `;
+  }
+
+  private renderEdgePanel(): TemplateResult {
+    const isActive = this.selectedEdge !== null;
+
+    return html`
+      <div class="static-panel ${isActive ? 'active' : 'disabled'}">
+        <div class="panel-title">Connection Edge</div>
+        <div class="panel-field">
+          <label style="margin-bottom: 4px;">
+            ${isActive ? 'Selected flow connection' : 'Select an edge to edit'}
+          </label>
+        </div>
+        
+        ${isActive ? html`
+          <div class="panel-divider"></div>
+          <div class="panel-delete-btn" @click="${this.onDeleteSelectedEdge}">
+            🗑 Delete connection
+          </div>
+        ` : null}
+      </div>
+    `;
+  }
+
+  // --- SVG RENDERING ---
 
   private renderSwimlanes(totalHeight: number) {
     const lanes = this.actors.length ? this.actors : ['Lane 1'];
@@ -737,41 +892,12 @@ export class AdCanvasEditor extends LitElement {
 
       return svg`
         <g>
-          <rect
-            x=${x}
-            y=${0}
-            width=${width}
-            height=${headerHeight}
-            fill="#ffffff"
-            stroke="#d1d5db"
-            stroke-width="1"
-          />
-          <text
-            x=${x + width / 2}
-            y=${headerHeight / 2 + 3}
-            text-anchor="middle"
-            fill="#111827"
-            font-size="11"
-            font-weight="500"
-          >
+          <rect x=${x} y=${0} width=${width} height=${headerHeight} fill="#ffffff" stroke="#d1d5db" stroke-width="1" />
+          <text x=${x + width / 2} y=${headerHeight / 2 + 3} text-anchor="middle" fill="#111827" font-size="11" font-weight="500">
             ${actor}
           </text>
-          <line
-            x1=${x}
-            y1=${headerHeight}
-            x2=${x}
-            y2=${totalHeight}
-            stroke="#111111"
-            stroke-width="1"
-          />
-          <line
-            x1=${x + width}
-            y1=${headerHeight}
-            x2=${x + width}
-            y2=${totalHeight}
-            stroke="#111111"
-            stroke-width="1"
-          />
+          <line x1=${x} y1=${headerHeight} x2=${x} y2=${totalHeight} stroke="#111111" stroke-width="1" />
+          <line x1=${x + width} y1=${headerHeight} x2=${x + width} y2=${totalHeight} stroke="#111111" stroke-width="1" />
         </g>
       `;
     });
@@ -780,28 +906,9 @@ export class AdCanvasEditor extends LitElement {
       const dividerX = starts[index] + widths[index];
 
       return svg`
-        <g
-          data-divider-index=${String(index)}
-          style="cursor: col-resize;"
-        >
-          <rect
-            x=${dividerX - 8}
-            y=${0}
-            width="16"
-            height=${totalHeight}
-            fill="transparent"
-          />
-          <rect
-            x=${dividerX - 3}
-            y="8"
-            width="6"
-            height="28"
-            rx="3"
-            ry="3"
-            fill="#e5e7eb"
-            stroke="#9ca3af"
-            stroke-width="1"
-          />
+        <g data-divider-index=${String(index)} style="cursor: col-resize;">
+          <rect x=${dividerX - 8} y=${0} width="16" height=${totalHeight} fill="transparent" />
+          <rect x=${dividerX - 3} y="8" width="6" height="28" rx="3" ry="3" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1" />
         </g>
       `;
     });
@@ -827,42 +934,23 @@ export class AdCanvasEditor extends LitElement {
         const y = node.y - dims.height / 2;
         const startYOffset = -((lines.length - 1) * 14) / 2;
 
-        // Port position: bottom center of action node
         const portY = node.y + dims.height / 2;
 
         return svg`
           <g data-node-id="${node.id}" style="cursor: grab;">
-            <rect
-              x="${x}" y="${y}" rx="6" ry="6"
-              width="${dims.width}" height="${dims.height}"
-              fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"
-            />
-            <text
-              x="${node.x}" y="${node.y}"
-              text-anchor="middle" dominant-baseline="central"
-              fill="#111827" font-size="11"
-              font-family="system-ui, -apple-system, sans-serif"
-            >
+            <rect x="${x}" y="${y}" rx="6" ry="6" width="${dims.width}" height="${dims.height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="11" font-family="system-ui, -apple-system, sans-serif">
               ${lines.map((line, index) => svg`
                 <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
               `)}
             </text>
-
             ${isSelected ? svg`
-              <circle
-                data-port-type="action-out"
-                data-port-node-id="${node.id}"
-                cx="${node.x}" cy="${portY}"
-                r="6"
-                fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
-                style="cursor: crosshair;"
-              />
+              <circle data-port-type="action-out" data-port-node-id="${node.id}" cx="${node.x}" cy="${portY}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
             ` : null}
           </g>
         `;
       }
 
-      // Decision node (Hexagon)
       const d = node as DecisionCanvasNode;
       const rawCondition = d.condition || 'Decision';
       const lines = this.wrapText(rawCondition, 18);
@@ -881,52 +969,18 @@ export class AdCanvasEditor extends LitElement {
 
       return svg`
         <g data-node-id="${node.id}" style="cursor: grab;">
-          <polygon
-            points="${points}"
-            fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"
-          />
-          <text
-            x="${node.x}" y="${node.y}"
-            text-anchor="middle" dominant-baseline="central"
-            fill="#111827" font-size="10" font-weight="500"
-            font-family="system-ui, -apple-system, sans-serif"
-          >
+          <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+          <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="10" font-weight="500" font-family="system-ui, -apple-system, sans-serif">
             ${lines.map((line, index) => svg`
               <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
             `)}
           </text>
-
-          <text
-            x="${node.x - dims.halfW - 6}" y="${node.y - 12}"
-            text-anchor="end" dominant-baseline="middle"
-            fill="#059669" font-size="10" font-weight="bold"
-          >${d.yesText || 'yes'}</text>
-
-          <text
-            x="${node.x + dims.halfW + 6}" y="${node.y - 12}"
-            text-anchor="start" dominant-baseline="middle"
-            fill="#dc2626" font-size="10" font-weight="bold"
-          >${d.noText || 'no'}</text>
+          <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end" dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">${d.yesText || 'yes'}</text>
+          <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start" dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">${d.noText || 'no'}</text>
 
           ${isSelected ? svg`
-            <!-- Yes port: left middle -->
-            <circle
-              data-port-type="decision-yes"
-              data-port-node-id="${node.id}"
-              cx="${node.x - dims.halfW}" cy="${node.y}"
-              r="6"
-              fill="#059669" stroke="#ffffff" stroke-width="1.5"
-              style="cursor: crosshair;"
-            />
-            <!-- No port: right middle -->
-            <circle
-              data-port-type="decision-no"
-              data-port-node-id="${node.id}"
-              cx="${node.x + dims.halfW}" cy="${node.y}"
-              r="6"
-              fill="#dc2626" stroke="#ffffff" stroke-width="1.5"
-              style="cursor: crosshair;"
-            />
+            <circle data-port-type="decision-yes" data-port-node-id="${node.id}" cx="${node.x - dims.halfW}" cy="${node.y}" r="6" fill="#059669" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+            <circle data-port-type="decision-no" data-port-node-id="${node.id}" cx="${node.x + dims.halfW}" cy="${node.y}" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
           ` : null}
         </g>
       `;
@@ -937,22 +991,11 @@ export class AdCanvasEditor extends LitElement {
     const parts: unknown[] = [];
 
     if (layout.startNode) {
-      parts.push(
-        svg`
-          <g
-            data-virtual-kind="start"
-            data-virtual-id="start"
-            style="cursor: grab;"
-          >
-            <circle
-              cx=${layout.startNode.x}
-              cy=${layout.startNode.y}
-              r="10"
-              fill="#111111"
-            />
-          </g>
-        `,
-      );
+      parts.push(svg`
+        <g data-virtual-kind="start" data-virtual-id="start" style="cursor: grab;">
+          <circle cx=${layout.startNode.x} cy=${layout.startNode.y} r="10" fill="#111111" />
+        </g>
+      `);
     }
 
     layout.mergeNodes.forEach((merge) => {
@@ -964,208 +1007,28 @@ export class AdCanvasEditor extends LitElement {
         `${merge.x - half} ${merge.y}`,
       ].join(' ');
 
-      parts.push(
-        svg`
-          <g
-            data-virtual-kind="merge"
-            data-virtual-id=${merge.decisionId}
-            style="cursor: grab;"
-          >
-            <polygon
-              points=${points}
-              fill="#ffffff"
-              stroke="#9ca3af"
-              stroke-width="1"
-            />
-          </g>
-        `,
-      );
+      parts.push(svg`
+        <g data-virtual-kind="merge" data-virtual-id=${merge.decisionId} style="cursor: grab;">
+          <polygon points=${points} fill="#ffffff" stroke="#9ca3af" stroke-width="1" />
+        </g>
+      `);
     });
 
     if (layout.finalNode) {
-      parts.push(
-        svg`
-          <g
-            data-virtual-kind="final"
-            data-virtual-id="final"
-            style="cursor: grab;"
-          >
-            <circle
-              cx=${layout.finalNode.x}
-              cy=${layout.finalNode.y}
-              r="11"
-              fill="#ffffff"
-              stroke="#111111"
-              stroke-width="1.5"
-            />
-            <circle
-              cx=${layout.finalNode.x}
-              cy=${layout.finalNode.y}
-              r="6"
-              fill="#111111"
-            />
-          </g>
-        `,
-      );
+      parts.push(svg`
+        <g data-virtual-kind="final" data-virtual-id="final" style="cursor: grab;">
+          <circle cx=${layout.finalNode.x} cy=${layout.finalNode.y} r="11" fill="#ffffff" stroke="#111111" stroke-width="1.5" />
+          <circle cx=${layout.finalNode.x} cy=${layout.finalNode.y} r="6" fill="#111111" />
+        </g>
+      `);
     }
 
     return svg`${parts}`;
   }
 
-  private renderPropertiesPanel() {
-    if (!this.selectedNodeId) return null;
+  // --- LAYOUT ENGINE ---
 
-    const node = this.nodes.find((n) => n.id === this.selectedNodeId);
-    if (!node) return null;
-
-    const panelWidth = 220;
-    const marginY = 14; // Gap between node bottom and panel top
-
-    // Convert SVG bottom-center of node to CSS container-relative coordinates
-    const nodeH = this.getNodeDynamicHeight(node);
-    const baseCss = this.svgPointToCssPoint(node.x, node.y + nodeH / 2);
-
-    const left = baseCss.x - panelWidth / 2 + this.panelOffset.x;
-    const top = baseCss.y + marginY + this.panelOffset.y;
-
-    const panelStyle = `left: ${left}px; top: ${top}px; width: ${panelWidth}px; cursor: grab;`;
-
-    if (node.type === 'action') {
-      const actionNode = node as ActionCanvasNode;
-      return html`
-        <div
-          class="properties-panel"
-          style="${panelStyle}"
-          @pointerdown="${this.onPanelPointerDown}"
-          @pointermove="${this.onPanelPointerMove}"
-          @pointerup="${this.onPanelPointerUp}"
-        >
-          <div class="panel-title">Action node</div>
-
-          <div class="panel-field">
-            <label>Label</label>
-            <input
-              type="text"
-              .value="${actionNode.text || ''}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @input="${(e: Event) =>
-                this.onPanelTextChange(node.id, (e.target as HTMLInputElement).value)}"
-            />
-          </div>
-
-          <div class="panel-field">
-            <label>Actor (Swimlane)</label>
-            <select
-              .value="${actionNode.actor}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @change="${(e: Event) =>
-                this.onPanelActorChange(node.id, (e.target as HTMLSelectElement).value)}"
-            >
-              ${this.actors.map(
-                (actor) => html`
-                  <option value="${actor}" ?selected="${actor === actionNode.actor}">
-                    ${actor}
-                  </option>
-                `
-              )}
-            </select>
-          </div>
-
-          <div class="panel-divider"></div>
-
-          <div
-            class="panel-delete-btn"
-            @pointerdown="${(e: Event) => e.stopPropagation()}"
-            @click="${() => this.onPanelDeleteNode(node.id)}"
-          >
-            🗑 Delete node
-          </div>
-        </div>
-      `;
-    }
-
-    if (node.type === 'decision') {
-      const decisionNode = node as DecisionCanvasNode;
-      return html`
-        <div
-          class="properties-panel"
-          style="${panelStyle}"
-          @pointerdown="${this.onPanelPointerDown}"
-          @pointermove="${this.onPanelPointerMove}"
-          @pointerup="${this.onPanelPointerUp}"
-        >
-          <div class="panel-title">Decision node</div>
-
-          <div class="panel-field">
-            <label>Condition</label>
-            <input
-              type="text"
-              .value="${decisionNode.condition || ''}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @input="${(e: Event) =>
-                this.onPanelConditionChange(node.id, (e.target as HTMLInputElement).value)}"
-            />
-          </div>
-
-          <div class="panel-field">
-            <label>Yes branch label</label>
-            <input
-              type="text"
-              .value="${decisionNode.yesText || ''}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @input="${(e: Event) =>
-                this.onPanelYesTextChange(node.id, (e.target as HTMLInputElement).value)}"
-            />
-          </div>
-
-          <div class="panel-field">
-            <label>No branch label</label>
-            <input
-              type="text"
-              .value="${decisionNode.noText || ''}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @input="${(e: Event) =>
-                this.onPanelNoTextChange(node.id, (e.target as HTMLInputElement).value)}"
-            />
-          </div>
-
-          <div class="panel-field">
-            <label>Actor (Swimlane)</label>
-            <select
-              .value="${decisionNode.actor}"
-              @pointerdown="${(e: Event) => e.stopPropagation()}"
-              @change="${(e: Event) =>
-                this.onPanelActorChange(node.id, (e.target as HTMLSelectElement).value)}"
-            >
-              ${this.actors.map(
-                (actor) => html`
-                  <option value="${actor}" ?selected="${actor === decisionNode.actor}">
-                    ${actor}
-                  </option>
-                `
-              )}
-            </select>
-          </div>
-
-          <div class="panel-divider"></div>
-
-          <div
-            class="panel-delete-btn"
-            @pointerdown="${(e: Event) => e.stopPropagation()}"
-            @click="${() => this.onPanelDeleteNode(node.id)}"
-          >
-            🗑 Delete node
-          </div>
-        </div>
-      `;
-    }
-
-    return null;
-  }
-
-  private buildBranchMembership(
-    decisionNodes: DecisionCanvasNode[],
-  ): Map<number, BranchMark> {
+  private buildBranchMembership(decisionNodes: DecisionCanvasNode[]): Map<number, BranchMark> {
     const membership = new Map<number, BranchMark>();
 
     decisionNodes.forEach((d) => {
@@ -1200,93 +1063,43 @@ export class AdCanvasEditor extends LitElement {
     return this.mergeOffsets[decisionId] ?? { x: 0, y: 0 };
   }
 
-    // Converts SVG user coordinates to CSS pixel coordinates relative to .canvas-container
-  private svgPointToCssPoint(svgX: number, svgY: number): Point {
-    const svgEl = this.renderRoot.querySelector('svg') as SVGSVGElement | null;
-    const container = this.renderRoot.querySelector('.canvas-container') as HTMLElement | null;
-    if (!svgEl || !container) return { x: svgX, y: svgY };
-
-    const pt = svgEl.createSVGPoint();
-    pt.x = svgX;
-    pt.y = svgY;
-    const ctm = svgEl.getScreenCTM();
-    if (!ctm) return { x: svgX, y: svgY };
-
-    const screenPt = pt.matrixTransform(ctm);
-    const containerRect = container.getBoundingClientRect();
-
-    return {
-      x: screenPt.x - containerRect.left + container.scrollLeft,
-      y: screenPt.y - containerRect.top + container.scrollTop,
-    };
-  }
-
   private buildDerivedLayout(): DerivedLayout {
-    const actionNodes = this.nodes.filter(
-      (n) => n.type === 'action',
-    ) as ActionCanvasNode[];
+    const actionNodes = this.nodes.filter((n) => n.type === 'action') as ActionCanvasNode[];
 
     const indexedActions = actionNodes
-      .filter(
-        (a): a is ActionCanvasNode & { actionIndex: number } =>
-          a.actionIndex !== null,
-      )
+      .filter((a): a is ActionCanvasNode & { actionIndex: number } => a.actionIndex !== null)
       .sort((a, b) => a.actionIndex - b.actionIndex);
 
-    const decisionNodes = this.nodes.filter(
-      (n) => n.type === 'decision',
-    ) as DecisionCanvasNode[];
+    const decisionNodes = this.nodes.filter((n) => n.type === 'decision') as DecisionCanvasNode[];
 
     const branchMembership = this.buildBranchMembership(decisionNodes);
 
     const decisionsBySource = new Map<number, DecisionCanvasNode[]>();
     decisionNodes.forEach((d) => {
-      if (d.sourceActionIndex == null) {
-        return;
-      }
+      if (d.sourceActionIndex == null) return;
       const arr = decisionsBySource.get(d.sourceActionIndex) ?? [];
       arr.push(d);
       decisionsBySource.set(d.sourceActionIndex, arr);
     });
 
     const firstAction = indexedActions[0] ?? null;
-    const startNode =
-      firstAction != null
-        ? {
-            x: firstAction.x + this.startOffset.x,
-            y:
-              Math.max(
-                this.laneHeaderHeight + 28,
-                firstAction.y - this.startGap,
-              ) + this.startOffset.y,
-          }
-        : null;
+    const startNode = firstAction != null
+      ? { x: firstAction.x + this.startOffset.x, y: Math.max(this.laneHeaderHeight + 28, firstAction.y - this.startGap) + this.startOffset.y }
+      : null;
 
     const mergeNodes: MergeVisualNode[] = [];
 
-    const findAction = (
-      idx: number | null,
-    ): (ActionCanvasNode & { actionIndex: number }) | null => {
-      if (idx == null) {
-        return null;
-      }
+    const findAction = (idx: number | null): (ActionCanvasNode & { actionIndex: number }) | null => {
+      if (idx == null) return null;
       return indexedActions.find((a) => a.actionIndex === idx) ?? null;
     };
 
-    const getBranchTerminal = (
-      decisionId: string,
-      side: BranchSide,
-      fallback: (ActionCanvasNode & { actionIndex: number }) | null,
-    ) => {
+    const getBranchTerminal = (decisionId: string, side: BranchSide, fallback: (ActionCanvasNode & { actionIndex: number }) | null) => {
       const candidates = indexedActions.filter((a) => {
         const mark = branchMembership.get(a.actionIndex);
         return mark?.decisionId === decisionId && mark.side === side;
       });
-
-      if (candidates.length) {
-        return candidates[candidates.length - 1];
-      }
-
+      if (candidates.length) return candidates[candidates.length - 1];
       return fallback;
     };
 
@@ -1297,24 +1110,16 @@ export class AdCanvasEditor extends LitElement {
       const yesTerminal = getBranchTerminal(decision.id, 'yes', yesStart);
       const noTerminal = getBranchTerminal(decision.id, 'no', noStart);
 
-      if (!yesTerminal || !noTerminal) {
-        return;
-      }
+      if (!yesTerminal || !noTerminal) return;
 
       const maxTerminalY = Math.max(yesTerminal.y, noTerminal.y);
-      const maxTerminalIndex = Math.max(
-        yesTerminal.actionIndex,
-        noTerminal.actionIndex,
-      );
+      const maxTerminalIndex = Math.max(yesTerminal.actionIndex, noTerminal.actionIndex);
 
-      const nextAction =
-        indexedActions.find((a) => {
-          if (a.actionIndex <= maxTerminalIndex) {
-            return false;
-          }
-          const mark = branchMembership.get(a.actionIndex);
-          return !mark;
-        }) ?? null;
+      const nextAction = indexedActions.find((a) => {
+        if (a.actionIndex <= maxTerminalIndex) return false;
+        const mark = branchMembership.get(a.actionIndex);
+        return !mark;
+      }) ?? null;
 
       const mergeBaseX = (yesTerminal.x + noTerminal.x) / 2;
       const mergeBaseY = maxTerminalY + this.mergeGap;
@@ -1332,34 +1137,18 @@ export class AdCanvasEditor extends LitElement {
 
     let finalNode: FinalVisualNode | null = null;
 
-    const bottomOpenMerge =
-      [...mergeNodes]
-        .filter((m) => m.nextAction == null)
-        .sort((a, b) => b.y - a.y)[0] ?? null;
+    const bottomOpenMerge = [...mergeNodes]
+      .filter((m) => m.nextAction == null)
+      .sort((a, b) => b.y - a.y)[0] ?? null;
 
     if (bottomOpenMerge) {
-      finalNode = {
-        x: bottomOpenMerge.x + this.finalOffset.x,
-        y: bottomOpenMerge.y + this.finalGap + this.finalOffset.y,
-      };
+      finalNode = { x: bottomOpenMerge.x + this.finalOffset.x, y: bottomOpenMerge.y + this.finalGap + this.finalOffset.y };
     } else if (indexedActions.length) {
       const lastAction = indexedActions[indexedActions.length - 1];
-      finalNode = {
-        x: lastAction.x + this.finalOffset.x,
-        y: lastAction.y + this.finalGap + 20 + this.finalOffset.y,
-      };
+      finalNode = { x: lastAction.x + this.finalOffset.x, y: lastAction.y + this.finalGap + 20 + this.finalOffset.y };
     }
 
-    return {
-      actionNodes,
-      indexedActions,
-      decisionNodes,
-      branchMembership,
-      decisionsBySource,
-      startNode,
-      mergeNodes,
-      finalNode,
-    };
+    return { actionNodes, indexedActions, decisionNodes, branchMembership, decisionsBySource, startNode, mergeNodes, finalNode };
   }
 
   private buildArrowPath(endX: number, endY: number, direction: 'up' | 'down' | 'left' | 'right'): string {
@@ -1367,14 +1156,10 @@ export class AdCanvasEditor extends LitElement {
     if (direction === 'down') return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX + a} ${endY - a} Z`;
     if (direction === 'up') return `M ${endX} ${endY} L ${endX - a} ${endY + a} L ${endX + a} ${endY + a} Z`;
     if (direction === 'left') return `M ${endX} ${endY} L ${endX + a} ${endY - a} L ${endX + a} ${endY + a} Z`;
-    return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX - a} ${endY + a} Z`; // right
+    return `M ${endX} ${endY} L ${endX - a} ${endY - a} L ${endX - a} ${endY + a} Z`;
   }
 
-  private renderPolylineEdge(
-    points: Point[],
-    direction: 'up' | 'down' | 'left' | 'right',
-    edgeMeta?: { id: string; fromId: string; toId: string }
-  ) {
+  private renderPolylineEdge(points: Point[], direction: 'up' | 'down' | 'left' | 'right', edgeMeta?: { id: string; fromId: string; toId: string }) {
     if (points.length < 2) return null;
     const d = points.map((point, index) => (index === 0 ? `M ${point.x} ${point.y}` : `L ${point.x} ${point.y}`)).join(' ');
     const end = points[points.length - 1];
@@ -1401,7 +1186,6 @@ export class AdCanvasEditor extends LitElement {
                     midY: (p1.y + p2.y) / 2
                   };
                   this.selectedNodeId = null;
-                  this.edgePanelOffset = { x: 0, y: 0 };
                 }}" />
         ` : ''}
       </g>
@@ -1410,29 +1194,17 @@ export class AdCanvasEditor extends LitElement {
 
   private edgeStraight(x1: number, y1: number, x2: number, y2: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
     const midY = (y1 + y2) / 2;
-    return this.renderPolylineEdge(
-      [{ x: x1, y: y1 }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: y2 }],
-      y2 >= midY ? 'down' : 'up',
-      edgeMeta
-    );
+    return this.renderPolylineEdge([{ x: x1, y: y1 }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: y2 }], y2 >= midY ? 'down' : 'up', edgeMeta);
   }
 
   private edgeBranch(startX: number, startY: number, endX: number, endY: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
-    return this.renderPolylineEdge(
-      [{ x: startX, y: startY }, { x: endX, y: startY }, { x: endX, y: endY }],
-      endY >= startY ? 'down' : 'up',
-      edgeMeta
-    );
+    return this.renderPolylineEdge([{ x: startX, y: startY }, { x: endX, y: startY }, { x: endX, y: endY }], endY >= startY ? 'down' : 'up', edgeMeta);
   }
 
   private edgeToMerge(startX: number, startY: number, mergeX: number, mergeY: number, edgeMeta?: { id: string; fromId: string; toId: string }) {
     const half = this.mergeSize / 2;
-    if (startX < mergeX) {
-      return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX - half, y: mergeY }], 'right', edgeMeta);
-    }
-    if (startX > mergeX) {
-      return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX + half, y: mergeY }], 'left', edgeMeta);
-    }
+    if (startX < mergeX) return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX - half, y: mergeY }], 'right', edgeMeta);
+    if (startX > mergeX) return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY }, { x: mergeX + half, y: mergeY }], 'left', edgeMeta);
     return this.renderPolylineEdge([{ x: startX, y: startY }, { x: startX, y: mergeY - half }], 'down', edgeMeta);
   }
 
@@ -1447,16 +1219,11 @@ export class AdCanvasEditor extends LitElement {
     });
 
     const getH = (node: CanvasNodeBase) => {
-      if (node.type === 'action') {
-        return typeof (this as any).getNodeDynamicHeight === 'function'
-          ? (this as any).getNodeDynamicHeight(node)
-          : this.nodeHeight;
-      }
+      if (node.type === 'action') return typeof (this as any).getNodeDynamicHeight === 'function' ? (this as any).getNodeDynamicHeight(node) : this.nodeHeight;
       if (node.type === 'decision') return this.decisionSize;
       return this.nodeHeight;
     };
 
-    // Pomocná funkcia: Ak hrana bola zmazaná používateľom, ignoruj ju.
     const addPath = (svgPath: unknown, id: string) => {
       if (!svgPath || this.deletedEdgeIds.includes(id)) return;
       paths.push(svgPath);
@@ -1490,7 +1257,6 @@ export class AdCanvasEditor extends LitElement {
       addPath(this.edgeStraight(from.x, from.y + getH(from) / 2, to.x, to.y - getH(to) / 2, { id, fromId: from.id, toId: to.id }), id);
     }
 
-    // Explicitné voľné hrany (draw.io štýl)
     if (this.explicitEdges) {
       this.explicitEdges.forEach((edge) => {
         const fromNode = this.nodes.find((n) => n.id === edge.fromId);
@@ -1553,27 +1319,9 @@ export class AdCanvasEditor extends LitElement {
     return svg`${paths}`;
   }
 
+  // --- POINTER EVENTS & INTERACTION ---
+
   private onCanvasPointerDown(event: PointerEvent): void {
-      // Zachytenie potiahnutia edge panelu
-    const edgePanelTarget = event.composedPath().find((el) => el instanceof HTMLElement && el.dataset.edgePanel !== undefined) as HTMLElement | undefined;
-    if (edgePanelTarget) {
-      // Ak sme klikli na button, nechceme zacat drag panela, chceme povolit click
-      const isButton = event.composedPath().some(el => el instanceof HTMLButtonElement || (el instanceof HTMLElement && el.tagName.toLowerCase() === 'button'));
-      if (isButton) {
-        return; // Prepusti event az na @click handler tlacidla
-      }
-
-      this.dragState = {
-        kind: 'edge-panel',
-        startX: event.clientX,
-        startY: event.clientY,
-        initialOffsetX: this.edgePanelOffset.x,
-        initialOffsetY: this.edgePanelOffset.y,
-      } as EdgePanelDragState;
-      edgePanelTarget.setPointerCapture(event.pointerId);
-      return;
-    }
-
     const portTarget = event.composedPath().find(
       (el) => el instanceof Element && (el as Element).hasAttribute('data-port-type')
     ) as Element | undefined;
@@ -1597,7 +1345,6 @@ export class AdCanvasEditor extends LitElement {
         currentY: svgPt.y,
       };
 
-      // Capture on SVG (not the port circle) so re-renders don't lose the capture
       svgEl.setPointerCapture(event.pointerId);
       return;
     }
@@ -1618,10 +1365,8 @@ export class AdCanvasEditor extends LitElement {
       const node = this.nodes.find((n) => n.id === id);
       if (!node) return;
 
-      if (this.selectedNodeId !== id) {
-        this.panelOffset = { x: 0, y: 0 };
-      }
       this.selectedNodeId = id;
+      this.selectedEdge = null; // Unselect edge when node is selected
 
       this.dragState = {
         kind: 'real',
@@ -1674,6 +1419,7 @@ export class AdCanvasEditor extends LitElement {
       .find((el) => el instanceof SVGGElement && (el as SVGGElement).dataset.virtualKind) as SVGGElement | undefined;
 
     if (!virtualTarget?.dataset.virtualKind) {
+      // Clicked on empty canvas space
       this.selectedNodeId = null;
       this.selectedEdge = null;
       return;
@@ -1772,10 +1518,7 @@ export class AdCanvasEditor extends LitElement {
         currentY: svgPoint.y,
       };
 
-      // action-out can target BOTH action and decision nodes
-      // decision-yes / decision-no can only target action nodes
-      const validTargetTypes: string[] =
-        portType === 'action-out' ? ['action', 'decision'] : ['action'];
+      const validTargetTypes: string[] = portType === 'action-out' ? ['action', 'decision'] : ['action'];
 
       const hovered = this.nodes.find((n) => {
         if (n.id === sourceNodeId) return false;
@@ -1819,16 +1562,6 @@ export class AdCanvasEditor extends LitElement {
         [this.dragState.virtualId]: { x: newOffsetX, y: newOffsetY },
       };
     }
-
-    if (this.dragState.kind === 'edge-panel') {
-      const deltaX = event.clientX - this.dragState.startX;
-      const deltaY = event.clientY - this.dragState.startY;
-      this.edgePanelOffset = {
-        x: (this.dragState as any).initialOffsetX + deltaX,
-        y: (this.dragState as any).initialOffsetY + deltaY
-      };
-      return;
-    }
   }
 
   private onCanvasPointerUp(): void {
@@ -1864,11 +1597,7 @@ export class AdCanvasEditor extends LitElement {
     this.emitStructureChange();
   }
 
-  private createConnection(
-    sourceId: string,
-    portType: ConnectingDragState['portType'],
-    targetId: string
-  ): void {
+  private createConnection(sourceId: string, portType: ConnectingDragState['portType'], targetId: string): void {
     const sourceNode = this.nodes.find((n) => n.id === sourceId);
     const targetNode = this.nodes.find((n) => n.id === targetId);
     if (!sourceNode || !targetNode) return;
@@ -1898,39 +1627,11 @@ export class AdCanvasEditor extends LitElement {
       startX = sourceNode.x + this.getDecisionDimensions(lines).halfW;
     }
 
-    const color = ds.portType === 'action-out' ? '#3b82f6'
-      : ds.portType === 'decision-yes' ? '#059669'
-      : '#dc2626';
+    const color = ds.portType === 'action-out' ? '#3b82f6' : ds.portType === 'decision-yes' ? '#059669' : '#dc2626';
 
     return svg`
-      <line
-        x1="${startX}" y1="${startY}"
-        x2="${ds.currentX}" y2="${ds.currentY}"
-        stroke="${color}"
-        stroke-width="1.8"
-        stroke-dasharray="6 3"
-        pointer-events="none"
-      />
+      <line x1="${startX}" y1="${startY}" x2="${ds.currentX}" y2="${ds.currentY}" stroke="${color}" stroke-width="1.8" stroke-dasharray="6 3" pointer-events="none" />
       <circle cx="${ds.currentX}" cy="${ds.currentY}" r="4" fill="${color}" pointer-events="none" />
-    `;
-  }
-
-    private renderEdgePanel(): TemplateResult | null {
-    if (!this.selectedEdge) return null;
-    const x = this.selectedEdge.midX + this.edgePanelOffset.x + 20;
-    const y = this.selectedEdge.midY + this.edgePanelOffset.y - 20;
-
-    return html`
-      <div data-edge-panel
-           style="position: absolute; left: ${x}px; top: ${y}px; background: white; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10; display: flex; cursor: grab; user-select: none;">
-        <button @click="${this.onDeleteSelectedEdge}"
-                style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #fca5a5; background: #fee2e2; color: #dc2626; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-          </svg>
-          Delete
-        </button>
-      </div>
     `;
   }
 
@@ -1939,10 +1640,8 @@ export class AdCanvasEditor extends LitElement {
     const { id } = this.selectedEdge;
 
     if (id.startsWith('explicit_')) {
-      // Zmazanie manuálne nakreslenej (voľnej) hrany
       this.explicitEdges = this.explicitEdges.filter(e => e.id !== id);
     } else {
-      // Zmazanie akejkoľvek inej (automatickej) hrany
       if (!this.deletedEdgeIds.includes(id)) {
         this.deletedEdgeIds = [...this.deletedEdgeIds, id];
       }
@@ -1951,6 +1650,8 @@ export class AdCanvasEditor extends LitElement {
     this.selectedEdge = null;
     this.emitStructureChange();
   }
+
+  // --- PANEL EDIT HANDLERS ---
 
   private onPanelTextChange(nodeId: string, value: string): void {
     this.nodes = this.nodes.map((n) =>
@@ -1994,10 +1695,8 @@ export class AdCanvasEditor extends LitElement {
     if (nodeToDelete.type === 'action') {
       const deletedIndex = (nodeToDelete as ActionCanvasNode).actionIndex;
 
-      // Remove the node
       let remaining = this.nodes.filter((n) => n.id !== nodeId);
 
-      // Reindex all remaining action nodes that had a higher actionIndex
       remaining = remaining.map((n) => {
         if (n.type !== 'action') return n;
         const a = n as ActionCanvasNode;
@@ -2008,96 +1707,52 @@ export class AdCanvasEditor extends LitElement {
         return n;
       });
 
-      // Update all decision node references to reflect the reindexing
       remaining = remaining.map((n) => {
         if (n.type !== 'decision') return n;
         const d = n as DecisionCanvasNode;
 
         const updateIndex = (idx: number | null): number | null => {
           if (idx === null) return null;
-          if (idx === deletedIndex) return null; // Reference to deleted node → nullify
-          if (deletedIndex !== null && idx > deletedIndex) return idx - 1; // Shift down
+          if (idx === deletedIndex) return null;
+          if (deletedIndex !== null && idx > deletedIndex) return idx - 1;
           return idx;
         };
 
-        const newSourceActionIndex = updateIndex(d.sourceActionIndex);
-        const newYesActionIndex = updateIndex(d.yesActionIndex);
-        const newNoActionIndex = updateIndex(d.noActionIndex);
-
         return {
           ...d,
-          sourceActionIndex: newSourceActionIndex,
-          yesActionIndex: newYesActionIndex,
-          noActionIndex: newNoActionIndex,
+          sourceActionIndex: updateIndex(d.sourceActionIndex),
+          yesActionIndex: updateIndex(d.yesActionIndex),
+          noActionIndex: updateIndex(d.noActionIndex),
         } as DecisionCanvasNode;
       });
 
       this.nodes = remaining;
 
     } else if (nodeToDelete.type === 'decision') {
-      // Remove decision node - branch action nodes stay but lose their branch positioning
       this.nodes = this.nodes.filter((n) => n.id !== nodeId);
-          // Clean up explicit edges involving the deleted node
-        this.explicitEdges = this.explicitEdges.filter(
+      this.explicitEdges = this.explicitEdges.filter(
         (e) => e.fromId !== nodeId && e.toId !== nodeId
-    );
+      );
     }
 
     this.selectedNodeId = null;
-    this.panelOffset = { x: 0, y: 0 };
     this.emitStructureChange();
   }
 
-    private onPanelPointerDown(e: PointerEvent): void {
-    e.stopPropagation(); // Prevent canvas deselection
-    this.panelDrag = {
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startOffsetX: this.panelOffset.x,
-      startOffsetY: this.panelOffset.y,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  private onPanelPointerMove(e: PointerEvent): void {
-    if (!this.panelDrag) return;
-    e.stopPropagation();
-    this.panelOffset = {
-      x: this.panelDrag.startOffsetX + (e.clientX - this.panelDrag.startMouseX),
-      y: this.panelDrag.startOffsetY + (e.clientY - this.panelDrag.startMouseY),
-    };
-  }
-
-  private onPanelPointerUp(e: PointerEvent): void {
-    e.stopPropagation();
-    this.panelDrag = null;
-  }
+  // --- UTILS ---
 
   private syncLaneWidths(count: number): void {
-    if (this.laneWidths.length === count) {
-      return;
-    }
-
-    this.laneWidths = Array.from(
-      { length: Math.max(count, 1) },
-      () => this.defaultLaneWidth,
-    );
+    if (this.laneWidths.length === count) return;
+    this.laneWidths = Array.from({ length: Math.max(count, 1) }, () => this.defaultLaneWidth);
   }
 
   private getLaneWidths(count: number): number[] {
-    if (this.laneWidths.length === count && count > 0) {
-      return this.laneWidths;
-    }
-
-    return Array.from(
-      { length: Math.max(count, 1) },
-      () => this.defaultLaneWidth,
-    );
+    if (this.laneWidths.length === count && count > 0) return this.laneWidths;
+    return Array.from({ length: Math.max(count, 1) }, () => this.defaultLaneWidth);
   }
 
   private computeLaneStartsFromWidths(widths: number[]): number[] {
     let currentX = this.lanePaddingX;
-
     return widths.map((width) => {
       const startX = currentX;
       currentX += width;
@@ -2108,7 +1763,6 @@ export class AdCanvasEditor extends LitElement {
   private computeLaneCenters(count: number): number[] {
     const widths = this.getLaneWidths(count);
     const starts = this.computeLaneStartsFromWidths(widths);
-
     return widths.map((width, index) => starts[index] + width / 2);
   }
 
@@ -2119,16 +1773,13 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private getLaneIndexForX(x: number, widths?: number[]): number {
-    const effectiveWidths =
-      widths ?? this.getLaneWidths(Math.max(this.actors.length, 1));
+    const effectiveWidths = widths ?? this.getLaneWidths(Math.max(this.actors.length, 1));
     const starts = this.computeLaneStartsFromWidths(effectiveWidths);
 
     for (let i = 0; i < effectiveWidths.length; i++) {
       const start = starts[i];
       const end = start + effectiveWidths[i];
-      if (x >= start && x <= end) {
-        return i;
-      }
+      if (x >= start && x <= end) return i;
     }
 
     let bestIndex = 0;
@@ -2155,7 +1806,6 @@ export class AdCanvasEditor extends LitElement {
     const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
     const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
 
-    // actionIndex is null — node is unconnected until user explicitly connects it via port drag
     this.nodes = [
       ...this.nodes,
       {
@@ -2176,14 +1826,10 @@ export class AdCanvasEditor extends LitElement {
     if (!this.actors.length) {
       this.actors = actors;
     }
-
     this.syncLaneWidths(actors.length);
 
     const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
-    const y =
-      this.laneHeaderHeight +
-      80 +
-      this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
+    const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
 
     this.nodes = [
       ...this.nodes,
@@ -2201,7 +1847,6 @@ export class AdCanvasEditor extends LitElement {
         y,
       } as DecisionCanvasNode,
     ];
-
     this.emitStructureChange();
   }
 
