@@ -1,7 +1,7 @@
 import { LitElement, html, css, svg, type TemplateResult } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
-type NodeType = 'action' | 'decision';
+type NodeType = 'action' | 'decision' | 'merge';
 type VirtualNodeKind = 'start' | 'merge' | 'final';
 
 interface CanvasNodeBase {
@@ -28,7 +28,11 @@ interface DecisionCanvasNode extends CanvasNodeBase {
   sourceActionIndex: number | null;
 }
 
-type CanvasNode = ActionCanvasNode | DecisionCanvasNode;
+interface MergeCanvasNode extends CanvasNodeBase {
+  type: 'merge';
+}
+
+type CanvasNode = ActionCanvasNode | DecisionCanvasNode | MergeCanvasNode;
 
 export interface ProcessActionDto {
   actor: string;
@@ -88,7 +92,7 @@ interface DividerDragState {
 interface ConnectingDragState {
   kind: 'connecting';
   sourceNodeId: string;
-  portType: 'action-out' | 'decision-yes' | 'decision-no';
+  portType: 'action-out' | 'decision-yes' | 'decision-no' | 'virtual-out' | string;
   currentX: number;
   currentY: number;
 }
@@ -363,6 +367,8 @@ export class AdCanvasEditor extends LitElement {
 
   @state() private selectedEdge: { id: string; fromId: string; toId: string; midX: number; midY: number } | null = null;
   @state() private deletedEdgeIds: string[] = [];
+  @state() private deletedMergeIds: string[] = [];
+
 
   private defaultLaneWidth = 420;
   private minLaneWidth = 260;
@@ -647,11 +653,14 @@ export class AdCanvasEditor extends LitElement {
       const actionNode = node as ActionCanvasNode;
       const lines = this.wrapText(actionNode.text || 'New action', 22);
       return this.getActionDimensions(lines).height;
-    } else {
+    } else if (node.type === 'decision') {
       const decisionNode = node as DecisionCanvasNode;
       const lines = this.wrapText(decisionNode.condition || 'Decision', 18);
       return this.getDecisionDimensions(lines).height;
+    } else if (node.type === 'merge') {
+      return this.mergeSize;
     }
+    return this.nodeHeight;
   }
 
   override render() {
@@ -688,6 +697,9 @@ export class AdCanvasEditor extends LitElement {
             </div>
           </div>
           <div class="toolbar">
+            <button class="btn" @click=${this.onAddMergeClick}>
+              + Add merge node
+            </button>
             <button class="btn" @click=${this.onAddActionClick}>
               + Add action node
             </button>
@@ -734,6 +746,7 @@ export class AdCanvasEditor extends LitElement {
             ${this.renderActionPanel()}
             ${this.renderDecisionPanel()}
             ${this.renderEdgePanel()}
+            ${this.renderMergePanel()}
           </div>
         </div>
       </div>
@@ -879,6 +892,74 @@ export class AdCanvasEditor extends LitElement {
   }
 
   // --- SVG RENDERING ---
+    private renderMergePanel() {
+    let isActive = false;
+    let isVirtual = false;
+    let actor = '';
+
+    const realNode = this.nodes.find((n) => n.id === this.selectedNodeId);
+
+    if (realNode && realNode.type === 'merge') {
+      isActive = true;
+      actor = realNode.actor;
+    } else if (this.selectedNodeId?.startsWith('virtual-merge-')) {
+      isActive = true;
+      isVirtual = true;
+    }
+
+    return html`
+      <div class="static-panel ${isActive ? 'active' : 'disabled'}">
+        <div class="panel-title">${isVirtual ? 'Auto Merge Node' : 'Merge Node'}</div>
+
+        <div class="panel-field">
+          <label>${isVirtual ? 'Actor (Auto-positioned)' : 'Actor (Swimlane)'}</label>
+          <select
+            .value="${actor}"
+            ?disabled="${!isActive || isVirtual}"
+            @change="${(e: Event) => isActive && !isVirtual && realNode && this.onPanelActorChange(realNode.id, (e.target as HTMLSelectElement).value)}"
+          >
+            ${this.actors.map(
+              (a) => html`
+                <option value="${a}" ?selected="${a === actor}">
+                  ${a}
+                </option>
+              `
+            )}
+            ${isVirtual ? html`<option value="" selected>Auto layout</option>` : ''}
+          </select>
+        </div>
+
+        ${isActive ? html`
+          <div class="panel-divider"></div>
+          <div class="panel-delete-btn" @click="${() => this.onPanelDeleteNode(isVirtual ? this.selectedNodeId! : realNode!.id)}">
+            🗑 Delete merge node
+          </div>
+        ` : null}
+      </div>
+    `;
+  }
+
+  private onAddMergeClick(): void {
+    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+    if (!this.actors.length) {
+      this.actors = actors;
+      this.syncLaneWidths(actors.length);
+    }
+    const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
+    const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
+
+    this.nodes = [
+      ...this.nodes,
+      {
+        id: this.generateNodeId(),
+        type: 'merge',
+        actor: actors[0],
+        x: laneCenters[0],
+        y,
+      } as MergeCanvasNode,
+    ];
+    this.emitStructureChange();
+  }
 
   private renderSwimlanes(totalHeight: number) {
     const lanes = this.actors.length ? this.actors : ['Lane 1'];
@@ -949,41 +1030,59 @@ export class AdCanvasEditor extends LitElement {
             ` : null}
           </g>
         `;
+      } else if (node.type === 'decision') {
+        const d = node as DecisionCanvasNode;
+        const rawCondition = d.condition || 'Decision';
+        const lines = this.wrapText(rawCondition, 18);
+        const dims = this.getDecisionDimensions(lines);
+
+        const points = [
+          `${node.x - dims.halfW},${node.y}`,
+          `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
+          `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
+          `${node.x + dims.halfW},${node.y}`,
+          `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
+          `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
+        ].join(' ');
+
+        const startYOffset = -((lines.length - 1) * 14) / 2;
+
+        return svg`
+          <g data-node-id="${node.id}" style="cursor: grab;">
+            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="10" font-weight="500" font-family="system-ui, -apple-system, sans-serif">
+              ${lines.map((line, index) => svg`
+                <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
+              `)}
+            </text>
+            <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end" dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">${d.yesText || 'yes'}</text>
+            <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start" dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">${d.noText || 'no'}</text>
+
+            ${isSelected ? svg`
+              <circle data-port-type="decision-yes" data-port-node-id="${node.id}" cx="${node.x - dims.halfW}" cy="${node.y}" r="6" fill="#059669" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+              <circle data-port-type="decision-no" data-port-node-id="${node.id}" cx="${node.x + dims.halfW}" cy="${node.y}" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+            ` : null}
+          </g>
+        `;
+      } else if (node.type === 'merge') {
+        const half = this.mergeSize / 2;
+        const points = [
+          `${node.x} ${node.y - half}`,
+          `${node.x + half} ${node.y}`,
+          `${node.x} ${node.y + half}`,
+          `${node.x - half} ${node.y}`,
+        ].join(' ');
+
+        return svg`
+          <g data-node-id="${node.id}" style="cursor: grab;">
+            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            ${isSelected ? svg`
+              <circle data-port-type="action-out" data-port-node-id="${node.id}" cx="${node.x}" cy="${node.y + half + 4}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+            ` : null}
+          </g>
+        `;
       }
-
-      const d = node as DecisionCanvasNode;
-      const rawCondition = d.condition || 'Decision';
-      const lines = this.wrapText(rawCondition, 18);
-      const dims = this.getDecisionDimensions(lines);
-
-      const points = [
-        `${node.x - dims.halfW},${node.y}`,
-        `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
-        `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
-        `${node.x + dims.halfW},${node.y}`,
-        `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
-        `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
-      ].join(' ');
-
-      const startYOffset = -((lines.length - 1) * 14) / 2;
-
-      return svg`
-        <g data-node-id="${node.id}" style="cursor: grab;">
-          <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-          <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="10" font-weight="500" font-family="system-ui, -apple-system, sans-serif">
-            ${lines.map((line, index) => svg`
-              <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
-            `)}
-          </text>
-          <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end" dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">${d.yesText || 'yes'}</text>
-          <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start" dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">${d.noText || 'no'}</text>
-
-          ${isSelected ? svg`
-            <circle data-port-type="decision-yes" data-port-node-id="${node.id}" cx="${node.x - dims.halfW}" cy="${node.y}" r="6" fill="#059669" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-            <circle data-port-type="decision-no" data-port-node-id="${node.id}" cx="${node.x + dims.halfW}" cy="${node.y}" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-          ` : null}
-        </g>
-      `;
+      return svg``;
     })}`;
   }
 
@@ -991,9 +1090,17 @@ export class AdCanvasEditor extends LitElement {
     const parts: unknown[] = [];
 
     if (layout.startNode) {
+      const isSelected = this.selectedNodeId === 'virtual-start';
+      const isHovered = this.hoveredNodeId === 'virtual-start';
+      const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : 'none';
+      const strokeWidth = isHovered || isSelected ? '2.5' : '0';
+
       parts.push(svg`
         <g data-virtual-kind="start" data-virtual-id="start" style="cursor: grab;">
-          <circle cx=${layout.startNode.x} cy=${layout.startNode.y} r="10" fill="#111111" />
+          <circle cx=${layout.startNode.x} cy=${layout.startNode.y} r="10" fill="#111111" stroke=${strokeColor} stroke-width=${strokeWidth} />
+          ${isSelected ? svg`
+            <circle data-port-type="virtual-out" data-port-node-id="virtual-start" cx="${layout.startNode.x}" cy="${layout.startNode.y + 14}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+          ` : null}
         </g>
       `);
     }
@@ -1007,18 +1114,34 @@ export class AdCanvasEditor extends LitElement {
         `${merge.x - half} ${merge.y}`,
       ].join(' ');
 
+      const isSelected = this.selectedNodeId === `virtual-merge-${merge.decisionId}`;
+      const isHovered = this.hoveredNodeId === `virtual-merge-${merge.decisionId}`;
+      const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#9ca3af';
+      const strokeW = isHovered || isSelected ? '2.5' : '1';
+
       parts.push(svg`
         <g data-virtual-kind="merge" data-virtual-id=${merge.decisionId} style="cursor: grab;">
-          <polygon points=${points} fill="#ffffff" stroke="#9ca3af" stroke-width="1" />
+          <polygon points=${points} fill="#ffffff" stroke=${strokeColor} stroke-width=${strokeW} />
+          ${isSelected ? svg`
+            <circle data-port-type="virtual-out" data-port-node-id="virtual-merge-${merge.decisionId}" cx="${merge.x}" cy="${merge.y + half + 4}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+          ` : null}
         </g>
       `);
     });
 
     if (layout.finalNode) {
+      const isSelected = this.selectedNodeId === 'virtual-final';
+      const isHovered = this.hoveredNodeId === 'virtual-final';
+      const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#111111';
+      const strokeW = isHovered || isSelected ? '2.5' : '1.5';
+
       parts.push(svg`
         <g data-virtual-kind="final" data-virtual-id="final" style="cursor: grab;">
-          <circle cx=${layout.finalNode.x} cy=${layout.finalNode.y} r="11" fill="#ffffff" stroke="#111111" stroke-width="1.5" />
+          <circle cx=${layout.finalNode.x} cy=${layout.finalNode.y} r="11" fill="#ffffff" stroke=${strokeColor} stroke-width=${strokeW} />
           <circle cx=${layout.finalNode.x} cy=${layout.finalNode.y} r="6" fill="#111111" />
+          ${isSelected ? svg`
+            <circle data-port-type="virtual-out" data-port-node-id="virtual-final" cx="${layout.finalNode.x}" cy="${layout.finalNode.y - 16}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
+          ` : null}
         </g>
       `);
     }
@@ -1125,14 +1248,17 @@ export class AdCanvasEditor extends LitElement {
       const mergeBaseY = maxTerminalY + this.mergeGap;
       const mergeOffset = this.getMergeOffset(decision.id);
 
-      mergeNodes.push({
-        decisionId: decision.id,
-        x: mergeBaseX + mergeOffset.x,
-        y: mergeBaseY + mergeOffset.y,
-        yesTerminal,
-        noTerminal,
-        nextAction,
-      });
+      // PRIDANÁ PODMIENKA: Pridaj merge node len ak nebol používateľom zmazaný
+      if (!this.deletedMergeIds.includes(decision.id)) {
+        mergeNodes.push({
+          decisionId: decision.id,
+          x: mergeBaseX + mergeOffset.x,
+          y: mergeBaseY + mergeOffset.y,
+          yesTerminal,
+          noTerminal,
+          nextAction,
+        });
+      }
     });
 
     let finalNode: FinalVisualNode | null = null;
@@ -1258,20 +1384,33 @@ export class AdCanvasEditor extends LitElement {
     }
 
     if (this.explicitEdges) {
+      const getPos = (id: string) => {
+        if (id === 'virtual-start' && layout.startNode) return { x: layout.startNode.x, y: layout.startNode.y, h: 20, type: 'virtual' };
+        if (id === 'virtual-final' && layout.finalNode) return { x: layout.finalNode.x, y: layout.finalNode.y, h: 22, type: 'virtual' };
+        if (id.startsWith('virtual-merge-')) {
+          const mId = id.replace('virtual-merge-', '');
+          const m = layout.mergeNodes.find(x => x.decisionId === mId);
+          if (m) return { x: m.x, y: m.y, h: this.mergeSize, type: 'virtual' };
+        }
+        const n = this.nodes.find(x => x.id === id);
+        if (n) {
+          return { x: n.x, y: n.y, h: getH(n), type: n.type };
+        }
+        return null;
+      };
+
       this.explicitEdges.forEach((edge) => {
-        const fromNode = this.nodes.find((n) => n.id === edge.fromId);
-        const toNode = this.nodes.find((n) => n.id === edge.toId);
-        if (!fromNode || !toNode) return;
+        const fromPos = getPos(edge.fromId);
+        const toPos = getPos(edge.toId);
+        if (!fromPos || !toPos) return;
 
-        const fromH = getH(fromNode);
-        const toH = getH(toNode);
-
-        if (fromNode.type === 'decision' && edge.portType === 'decision-yes') {
-          paths.push(this.edgeBranch(fromNode.x - this.decisionSize / 2, fromNode.y, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
-        } else if (fromNode.type === 'decision' && edge.portType === 'decision-no') {
-          paths.push(this.edgeBranch(fromNode.x + this.decisionSize / 2, fromNode.y, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
+        if (fromPos.type === 'decision' && edge.portType === 'decision-yes') {
+          paths.push(this.edgeBranch(fromPos.x - this.decisionSize / 2, fromPos.y, toPos.x, toPos.y - toPos.h / 2, edge as any));
+        } else if (fromPos.type === 'decision' && edge.portType === 'decision-no') {
+          paths.push(this.edgeBranch(fromPos.x + this.decisionSize / 2, fromPos.y, toPos.x, toPos.y - toPos.h / 2, edge as any));
         } else {
-          paths.push(this.edgeStraight(fromNode.x, fromNode.y + fromH / 2, toNode.x, toNode.y - toH / 2, { id: edge.id, fromId: edge.fromId, toId: edge.toId }));
+          // Priama čiara pre všetko ostatné (action, start, final, merge)
+          paths.push(this.edgeStraight(fromPos.x, fromPos.y + fromPos.h / 2, toPos.x, toPos.y - toPos.h / 2, edge as any));
         }
       });
     }
@@ -1366,7 +1505,7 @@ export class AdCanvasEditor extends LitElement {
       if (!node) return;
 
       this.selectedNodeId = id;
-      this.selectedEdge = null; // Unselect edge when node is selected
+      this.selectedEdge = null;
 
       this.dragState = {
         kind: 'real',
@@ -1419,7 +1558,6 @@ export class AdCanvasEditor extends LitElement {
       .find((el) => el instanceof SVGGElement && (el as SVGGElement).dataset.virtualKind) as SVGGElement | undefined;
 
     if (!virtualTarget?.dataset.virtualKind) {
-      // Clicked on empty canvas space
       this.selectedNodeId = null;
       this.selectedEdge = null;
       return;
@@ -1435,6 +1573,10 @@ export class AdCanvasEditor extends LitElement {
 
     const virtualKind = virtualTarget.dataset.virtualKind as VirtualNodeKind;
     const virtualId = virtualTarget.dataset.virtualId ?? '';
+
+    // Zabezpečenie označenia "selektnutého" elementu aj pre virtuálne nodes
+    this.selectedNodeId = virtualKind === 'merge' ? `virtual-merge-${virtualId}` : `virtual-${virtualKind}`;
+    this.selectedEdge = null;
 
     let initialOffsetX = 0;
     let initialOffsetY = 0;
@@ -1518,19 +1660,22 @@ export class AdCanvasEditor extends LitElement {
         currentY: svgPoint.y,
       };
 
-      const validTargetTypes: string[] = portType === 'action-out' ? ['action', 'decision'] : ['action'];
+      const layout = this.buildDerivedLayout();
+      let hoveredId: string | null = null;
 
-      const hovered = this.nodes.find((n) => {
+      // 1. Kontrola real nodes (action / decision / merge)
+      const hoveredReal = this.nodes.find((n) => {
         if (n.id === sourceNodeId) return false;
-        if (!validTargetTypes.includes(n.type)) return false;
         const h = this.getNodeDynamicHeight(n);
         let halfW = 60;
         if (n.type === 'action') {
           const lines = this.wrapText((n as ActionCanvasNode).text || '', 22);
           halfW = this.getActionDimensions(lines).width / 2;
-        } else {
+        } else if (n.type === 'decision') {
           const lines = this.wrapText((n as DecisionCanvasNode).condition || '', 18);
           halfW = this.getDecisionDimensions(lines).halfW;
+        } else if (n.type === 'merge') {
+          halfW = this.mergeSize / 2;
         }
         return (
           svgPoint.x >= n.x - halfW - 12 &&
@@ -1540,7 +1685,23 @@ export class AdCanvasEditor extends LitElement {
         );
       });
 
-      this.hoveredNodeId = hovered?.id ?? null;
+      if (hoveredReal) {
+        hoveredId = hoveredReal.id;
+      } else {
+        // 2. Kontrola virtual nodes (start / merge / final)
+        if (layout.startNode && sourceNodeId !== 'virtual-start' && Math.abs(svgPoint.x - layout.startNode.x) < 20 && Math.abs(svgPoint.y - layout.startNode.y) < 20) {
+          hoveredId = 'virtual-start';
+        } else if (layout.finalNode && sourceNodeId !== 'virtual-final' && Math.abs(svgPoint.x - layout.finalNode.x) < 20 && Math.abs(svgPoint.y - layout.finalNode.y) < 20) {
+          hoveredId = 'virtual-final';
+        } else {
+          const hoveredMerge = layout.mergeNodes.find(m => Math.abs(svgPoint.x - m.x) < 20 && Math.abs(svgPoint.y - m.y) < 20);
+          if (hoveredMerge && sourceNodeId !== `virtual-merge-${hoveredMerge.decisionId}`) {
+            hoveredId = `virtual-merge-${hoveredMerge.decisionId}`;
+          }
+        }
+      }
+
+      this.hoveredNodeId = hoveredId;
       return;
     }
 
@@ -1597,11 +1758,7 @@ export class AdCanvasEditor extends LitElement {
     this.emitStructureChange();
   }
 
-  private createConnection(sourceId: string, portType: ConnectingDragState['portType'], targetId: string): void {
-    const sourceNode = this.nodes.find((n) => n.id === sourceId);
-    const targetNode = this.nodes.find((n) => n.id === targetId);
-    if (!sourceNode || !targetNode) return;
-
+  private createConnection(sourceId: string, portType: string, targetId: string): void {
     const edgeId = `explicit_${sourceId}_${targetId}_${Date.now()}`;
     this.explicitEdges = [...this.explicitEdges, { id: edgeId, fromId: sourceId, toId: targetId, portType }];
 
@@ -1611,23 +1768,46 @@ export class AdCanvasEditor extends LitElement {
   private renderConnectingLine() {
     if (!this.dragState || this.dragState.kind !== 'connecting') return null;
     const ds = this.dragState as ConnectingDragState;
-    const sourceNode = this.nodes.find((n) => n.id === ds.sourceNodeId);
-    if (!sourceNode) return null;
 
-    let startX = sourceNode.x;
-    let startY = sourceNode.y;
+    let startX = 0;
+    let startY = 0;
+    let color = '#3b82f6';
 
-    if (ds.portType === 'action-out') {
-      startY = sourceNode.y + this.getNodeDynamicHeight(sourceNode) / 2;
-    } else if (ds.portType === 'decision-yes') {
-      const lines = this.wrapText((sourceNode as DecisionCanvasNode).condition || '', 18);
-      startX = sourceNode.x - this.getDecisionDimensions(lines).halfW;
-    } else if (ds.portType === 'decision-no') {
-      const lines = this.wrapText((sourceNode as DecisionCanvasNode).condition || '', 18);
-      startX = sourceNode.x + this.getDecisionDimensions(lines).halfW;
+    if (ds.sourceNodeId.startsWith('virtual-')) {
+      const layout = this.buildDerivedLayout();
+      if (ds.sourceNodeId === 'virtual-start' && layout.startNode) {
+        startX = layout.startNode.x;
+        startY = layout.startNode.y + 14;
+      } else if (ds.sourceNodeId === 'virtual-final' && layout.finalNode) {
+        startX = layout.finalNode.x;
+        startY = layout.finalNode.y - 16;
+      } else if (ds.sourceNodeId.startsWith('virtual-merge-')) {
+        const mId = ds.sourceNodeId.replace('virtual-merge-', '');
+        const m = layout.mergeNodes.find(x => x.decisionId === mId);
+        if (m) {
+          startX = m.x;
+          startY = m.y + this.mergeSize / 2 + 4;
+        }
+      }
+    } else {
+      const sourceNode = this.nodes.find((n) => n.id === ds.sourceNodeId);
+      if (!sourceNode) return null;
+
+      startX = sourceNode.x;
+      startY = sourceNode.y;
+
+      if (ds.portType === 'action-out') {
+        startY = sourceNode.y + this.getNodeDynamicHeight(sourceNode) / 2;
+      } else if (ds.portType === 'decision-yes') {
+        const lines = this.wrapText((sourceNode as DecisionCanvasNode).condition || '', 18);
+        startX = sourceNode.x - this.getDecisionDimensions(lines).halfW;
+        color = '#059669';
+      } else if (ds.portType === 'decision-no') {
+        const lines = this.wrapText((sourceNode as DecisionCanvasNode).condition || '', 18);
+        startX = sourceNode.x + this.getDecisionDimensions(lines).halfW;
+        color = '#dc2626';
+      }
     }
-
-    const color = ds.portType === 'action-out' ? '#3b82f6' : ds.portType === 'decision-yes' ? '#059669' : '#dc2626';
 
     return svg`
       <line x1="${startX}" y1="${startY}" x2="${ds.currentX}" y2="${ds.currentY}" stroke="${color}" stroke-width="1.8" stroke-dasharray="6 3" pointer-events="none" />
@@ -1689,6 +1869,22 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onPanelDeleteNode(nodeId: string): void {
+    // 1. Spracovanie zmazania Auto Merge uzla
+    if (nodeId.startsWith('virtual-merge-')) {
+      const decisionId = nodeId.replace('virtual-merge-', '');
+      if (!this.deletedMergeIds.includes(decisionId)) {
+        this.deletedMergeIds = [...this.deletedMergeIds, decisionId];
+      }
+      // Odstránime aj prípadné explicitné hrany, ktoré do/z neho išli
+      this.explicitEdges = this.explicitEdges.filter(
+        (e) => e.fromId !== nodeId && e.toId !== nodeId
+      );
+      this.selectedNodeId = null;
+      this.emitStructureChange();
+      return;
+    }
+
+    // 2. Spracovanie zmazania reálnych uzlov (action, decision, manuálny merge)
     const nodeToDelete = this.nodes.find((n) => n.id === nodeId);
     if (!nodeToDelete) return;
 
@@ -1728,7 +1924,7 @@ export class AdCanvasEditor extends LitElement {
 
       this.nodes = remaining;
 
-    } else if (nodeToDelete.type === 'decision') {
+    } else if (nodeToDelete.type === 'decision' || nodeToDelete.type === 'merge') {
       this.nodes = this.nodes.filter((n) => n.id !== nodeId);
       this.explicitEdges = this.explicitEdges.filter(
         (e) => e.fromId !== nodeId && e.toId !== nodeId
