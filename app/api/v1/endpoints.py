@@ -969,12 +969,12 @@ async def update_draft_process_version(
         process_id=updated.process_id,
         version_number=updated.version_number,
         version_name=updated.version_name or "",
-        created_at=updated.createdat,
-        llm_model=updated.llmmodel,
-        tokens_used=updated.tokensused,
+        created_at=updated.created_at,
+        llm_model=updated.llm_model,
+        tokens_used=updated.tokens_used,
         status=updated.status,
-        plantuml_code=updated.plantumlcode,
-        image_path=updated.imagepath,
+        plantuml_code=updated.plantuml_code,
+        image_path=updated.image_path,
     )
 
 
