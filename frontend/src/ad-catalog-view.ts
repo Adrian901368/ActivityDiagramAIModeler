@@ -541,6 +541,29 @@ export class AdCatalogView extends LitElement {
 
   @state() private isPlantUmlExpanded = false;
 
+    protected updated(changedProperties: Map<string, unknown>): void {
+    super.updated(changedProperties);
+
+    if (
+      changedProperties.has('expandedVersionId') &&
+      this.expandedVersionId !== null
+    ) {
+      const v = this.processDetail?.versions.find(
+        (ver) => ver.id === this.expandedVersionId
+      );
+      if (v?.prompt) {
+        requestAnimationFrame(() => {
+          const canvas = this.renderRoot?.querySelector(
+            `ad-canvas-editor[data-version-id="${this.expandedVersionId}"]`
+          ) as any;
+          if (canvas && typeof canvas.setStructure === 'function') {
+            this.populateCanvas(canvas, v.prompt);
+          }
+        });
+      }
+    }
+  }
+
   override firstUpdated(): void {
     this.loadProcesses();
   }
@@ -884,23 +907,6 @@ export class AdCatalogView extends LitElement {
     `;
   }
 
-  private getDiagramUrl(v: CatalogVersion): string | null {
-    if (!v.image_path) return null;
-    if (
-      v.image_path.startsWith('http://') ||
-      v.image_path.startsWith('https://')
-    ) {
-      return v.image_path;
-    }
-    const cleaned = v.image_path.replace(/^\/+/, '');
-    // Adjust this mapping if backend serves diagrams under a different prefix.
-    return `http://localhost:8000/${cleaned}`;
-  }
-
-  private onOpenDiagramClick(url: string): void {
-    window.open(url, '_blank', 'noopener');
-  }
-
   private renderExpandedPlantuml() {
     if (
       !this.processDetail ||
@@ -915,36 +921,69 @@ export class AdCatalogView extends LitElement {
     );
     if (!v) return null;
 
-    const diagramUrl = this.getDiagramUrl(v);
-
     return html`
       <div style="margin-top: 8px;">
-        <div class="card-subtitle">PlantUML code for selected version</div>
-        <pre>
-${v.plantuml_code}
-        </pre>
-        ${diagramUrl
+        <div class="card-subtitle">Visual diagram representation</div>
+
+        ${v.prompt
           ? html`
-              <div class="edit-actions" style="justify-content: flex-start;">
-                <button
-                  class="secondary"
-                  @click=${() => this.onOpenDiagramClick(diagramUrl)}
-                >
-                  Open diagram
-                </button>
-              </div>
-              <div class="diagram-preview">
-                <img src=${diagramUrl} alt="UML activity diagram" />
+              <div style="position: relative; overflow: hidden; border-radius: 8px;">
+                  <ad-canvas-editor
+                    data-version-id="${v.id}"
+                  ></ad-canvas-editor>
+                  <div style="
+                    position: absolute;
+                    inset: 0;
+                    z-index: 10;
+                    cursor: default;
+                    pointer-events: none;
+                  "></div>
               </div>
             `
           : html`
               <div class="placeholder small" style="margin-top: 8px;">
-                No rendered PNG diagram available for this version (image_path
-                is empty).
+                No diagram structure saved for this version.
               </div>
             `}
+
+        <div class="card-subtitle" style="margin-top: 16px;">PlantUML code for selected version</div>
+        <pre>${v.plantuml_code}</pre>
       </div>
     `;
+  }
+
+  private populateCanvas(canvas: any, prompt: any): void {
+    if (!prompt) return;
+    try {
+      const parsed = typeof prompt === 'string' ? JSON.parse(prompt) : prompt;
+      // If saved from getStructure() directly (nodes/edges format from canvas)
+      if (parsed.nodes || parsed.edges) {
+        canvas.setStructure(parsed);
+        return;
+      }
+      // Fallback: legacy actors/actions format from LLM prompt
+      if (Array.isArray(parsed.actors) && Array.isArray(parsed.actions)) {
+        canvas.setStructure({
+          actors: parsed.actors as string[],
+          actions: (parsed.actions as any[]).map((a: any) => ({
+            actor: a.actor,
+            action: a.action,
+          })),
+          decisions: Array.isArray(parsed.decisions)
+            ? (parsed.decisions as any[]).map((d: any) => ({
+                condition: d.condition,
+                branchyes: d.branch_yes ?? d.branchyes ?? 'Yes',
+                branchno: d.branch_no ?? d.branchno ?? 'No',
+                yes_action_index: d.yes_action_index ?? null,
+                no_action_index: d.no_action_index ?? null,
+              }))
+            : null,
+          parallelblocks: null,
+        });
+      }
+    } catch (e) {
+      console.warn('populateCanvas: failed to parse or apply structure', e);
+    }
   }
 
   // ===== EDIT VIEW =====

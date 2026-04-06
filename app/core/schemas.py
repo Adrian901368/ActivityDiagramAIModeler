@@ -225,6 +225,7 @@ class CatalogVersion(BaseModel):
     status: str
     plantuml_code: str
     image_path: Optional[str] = None
+    prompt: dict | None = None   # ← PRIDAJ TENTO RIADOK
 
 
 class CatalogProcessDetail(BaseModel):

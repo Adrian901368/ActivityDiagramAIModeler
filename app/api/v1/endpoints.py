@@ -568,6 +568,7 @@ async def save_version_from_structure(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -667,6 +668,7 @@ async def save_generated_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -748,6 +750,7 @@ async def get_process_catalog(
             status=v.status,
             plantuml_code=v.plantuml_code,
             image_path=v.image_path,
+            prompt=v.prompt,
         )
         for v in versions
     ]
@@ -851,6 +854,7 @@ async def create_process_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
+        prompt=version.prompt,
     )
 
 
@@ -975,6 +979,7 @@ async def update_draft_process_version(
         status=updated.status,
         plantuml_code=updated.plantuml_code,
         image_path=updated.image_path,
+        prompt=updated.prompt,
     )
 
 
@@ -1102,4 +1107,5 @@ async def publish_process_version(
         status=version.status,
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
+        prompt=version.prompt,
     )
