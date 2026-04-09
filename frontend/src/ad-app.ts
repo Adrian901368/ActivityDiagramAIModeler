@@ -935,9 +935,15 @@ export class AdApp extends LitElement {
         return;
       }
     } else {
-      // If user left JSON empty, fall back to lastPrompt or empty object
       promptForSave = this.lastPrompt ?? {};
     }
+
+    // Get canvas state snapshot
+    const canvas = this.renderRoot?.querySelector('ad-canvas-editor') as any;
+    const canvasState =
+      canvas && typeof canvas.getFullState === 'function'
+        ? canvas.getFullState()
+        : null;
 
     this.isSaving = true;
 
@@ -952,6 +958,7 @@ export class AdApp extends LitElement {
       const payload = {
         plantuml_code: code,
         prompt: promptForSave,
+        canvas_state: canvasState,
       };
 
       const response = await fetch(

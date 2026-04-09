@@ -23,6 +23,21 @@ interface CatalogVersion {
   prompt: Record<string, unknown> | null;
 }
 
+interface CatalogVersion {
+  id: number;
+  process_id: number;
+  version_number: number;
+  version_name: string;
+  created_at: string;
+  llm_model: string;
+  tokens_used: number | null;
+  status: string;
+  plantuml_code: string;
+  image_path: string | null;
+  prompt: Record<string, unknown> | null;
+  canvas_state: Record<string, unknown> | null; // ADD THIS
+}
+
 interface CatalogProcessDetail {
   process_id: number;
   process_name: string;
@@ -541,7 +556,7 @@ export class AdCatalogView extends LitElement {
 
   @state() private isPlantUmlExpanded = false;
 
-    protected updated(changedProperties: Map<string, unknown>): void {
+  protected updated(changedProperties: Map<string, unknown>): void {
     super.updated(changedProperties);
 
     if (
@@ -551,16 +566,21 @@ export class AdCatalogView extends LitElement {
       const v = this.processDetail?.versions.find(
         (ver) => ver.id === this.expandedVersionId
       );
-      if (v?.prompt) {
-        requestAnimationFrame(() => {
-          const canvas = this.renderRoot?.querySelector(
-            `ad-canvas-editor[data-version-id="${this.expandedVersionId}"]`
-          ) as any;
-          if (canvas && typeof canvas.setStructure === 'function') {
-            this.populateCanvas(canvas, v.prompt);
-          }
-        });
-      }
+      if (!v) return;
+
+      requestAnimationFrame(() => {
+        const canvas = this.renderRoot?.querySelector(
+          `ad-canvas-editor[data-version-id="${this.expandedVersionId}"]`
+        ) as any;
+        if (!canvas) return;
+
+        // Prefer full canvas state snapshot over legacy prompt structure
+        if (v.canvas_state && typeof canvas.setFullState === 'function') {
+          canvas.setFullState(v.canvas_state);
+        } else if (v.prompt && typeof canvas.setStructure === 'function') {
+          this.populateCanvas(canvas, v.prompt);
+        }
+      });
     }
   }
 
@@ -1498,6 +1518,15 @@ export class AdCatalogView extends LitElement {
       this.editPromptJson = {};
     }
 
+    // Get canvas state snapshot from edit view canvas
+    const editCanvas = this.renderRoot?.querySelector(
+      'ad-canvas-editor:not([data-version-id])'
+    ) as any;
+    const canvasState =
+      editCanvas && typeof editCanvas.getFullState === 'function'
+        ? editCanvas.getFullState()
+        : null;
+
     this.isGenerating = true;
     this.editError = '';
 
@@ -1531,6 +1560,7 @@ export class AdCatalogView extends LitElement {
     const payload = {
       plantuml_code: code,
       prompt: this.editPromptJson ?? {},
+      canvas_state: canvasState,
     };
 
     try {

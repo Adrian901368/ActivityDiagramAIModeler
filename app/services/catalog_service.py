@@ -1,5 +1,5 @@
 # app/services/catalog_service.py
-from typing import Dict, Optional
+from typing import Dict, Any, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -43,6 +43,7 @@ def save_process_version(
     tokens_used: int | None = None,
     version_name: str | None = None,
     image_path: str | None = None,
+    canvas_state: Dict[str, Any] | None = None,
 ) -> Version:
     """
     Find or create Process by (name, domain) and save a new Version.
@@ -78,6 +79,7 @@ def save_process_version(
         tokens_used=tokens_used,
         status="draft",
         image_path=image_path,
+        canvas_state=canvas_state,
     )
 
     db.add(version)
@@ -151,6 +153,7 @@ def create_new_version_for_process(
     tokens_used: int | None = None,
     version_name: str = "",
     image_path: str | None = None,
+    canvas_state: Dict[str, Any] | None = None,
 ) -> Version:
     """
     Create a new Version row for an existing process.
@@ -181,6 +184,7 @@ def create_new_version_for_process(
         tokens_used=tokens_used,
         status="draft",
         image_path=image_path,
+        canvas_state=canvas_state,
     )
 
     db.add(new_version)
@@ -267,9 +271,11 @@ def update_draft_version(
     prompt_dict: dict | None,
     version_name: str = "",
     image_path: str | None = None,
+    canvas_state: Dict[str, Any] | None = None,
 ) -> Version | None:
     """
-    Update PlantUML (and optional prompt + version_name + image_path) for a version in 'draft'.
+    Update PlantUML (and optional prompt + version_name + image_path + canvas_state)
+    for a version in 'draft' status.
 
     - No version -> returns None.
     - Status != 'draft' -> raises ValueError.
@@ -293,6 +299,7 @@ def update_draft_version(
     version.prompt = prompt_dict or {}
     version.version_name = version_name
     version.image_path = image_path
+    version.canvas_state = canvas_state
 
     db.commit()
     db.refresh(version)

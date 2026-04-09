@@ -58,6 +58,31 @@ export interface ProcessStructureInputDto {
   parallelblocks?: ProcessParallelBlockDto[] | null;
 }
 
+export interface CanvasNodeSnapshot {
+  id: string;
+  type: 'action' | 'decision';
+  actor: string;
+  x: number;
+  y: number;
+  text?: string;
+  actionIndex?: number | null;
+  condition?: string;
+  yesText?: string;
+  noText?: string;
+  yesActionIndex?: number | null;
+  noActionIndex?: number | null;
+  sourceActionIndex?: number | null;
+}
+
+export interface CanvasFullStateDto {
+  actors: string[];
+  nodes: CanvasNodeSnapshot[];
+  laneWidths: number[];
+  startOffset: { x: number; y: number };
+  finalOffset: { x: number; y: number };
+  mergeOffsets: Record<string, { x: number; y: number }>;
+}
+
 interface RealDragState {
   kind: 'real';
   nodeId: string;
@@ -585,6 +610,58 @@ export class AdCanvasEditor extends LitElement {
       decisions: decisions.length ? decisions : null,
       parallelblocks: null
     };
+  }
+
+  public getFullState(): Record<string, unknown> {
+    return {
+      actors: [...this.actors],
+      nodes: this.nodes.map((n) => ({ ...n })),
+      laneWidths: [...this.laneWidths],
+      startOffset: { ...this.startOffset },
+      finalOffset: { ...this.finalOffset },
+      mergeOffsets: { ...this.mergeOffsets },
+    };
+  }
+
+  public setFullState(state: Record<string, unknown> | null): void {
+    if (!state) {
+      this.setStructure(null);
+      return;
+    }
+
+    const actors = Array.isArray(state.actors)
+      ? (state.actors as string[])
+      : [];
+    this.actors = actors.length ? actors : ['Actor'];
+    this.syncLaneWidths(this.actors.length);
+
+    if (
+      Array.isArray(state.laneWidths) &&
+      (state.laneWidths as number[]).length === this.actors.length
+    ) {
+      this.laneWidths = [...(state.laneWidths as number[])];
+    }
+
+    this.nodes = Array.isArray(state.nodes)
+      ? (state.nodes as CanvasNode[]).map((n) => ({ ...n }))
+      : [];
+
+    this.startOffset =
+      state.startOffset && typeof state.startOffset === 'object'
+        ? { ...(state.startOffset as Point) }
+        : { x: 0, y: 0 };
+
+    this.finalOffset =
+      state.finalOffset && typeof state.finalOffset === 'object'
+        ? { ...(state.finalOffset as Point) }
+        : { x: 0, y: 0 };
+
+    this.mergeOffsets =
+      state.mergeOffsets && typeof state.mergeOffsets === 'object'
+        ? { ...(state.mergeOffsets as Record<string, Point>) }
+        : {};
+
+    this.emitStructureChange();
   }
 
   private emitStructureChange(): void {
