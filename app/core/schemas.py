@@ -1,4 +1,5 @@
-from typing import List, Optional
+# app/schemas.py
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from pydantic import (
@@ -21,7 +22,6 @@ class Action(BaseModel):
         max_length=100,
         description="Who performs the action",
     )
-
     action: str = Field(
         ...,
         min_length=1,
@@ -53,21 +53,18 @@ class Decision(BaseModel):
         max_length=200,
         description="Decision condition",
     )
-
     branch_yes: str = Field(
         ...,
         min_length=1,
         max_length=200,
         description="Text description of the YES branch outcome",
     )
-
     branch_no: str = Field(
         ...,
         min_length=1,
         max_length=200,
         description="Text description of the NO branch outcome",
     )
-
     yes_action_index: Optional[int] = Field(
         default=None,
         ge=0,
@@ -77,7 +74,6 @@ class Decision(BaseModel):
             "Optional for backward compatibility, but strongly recommended."
         ),
     )
-
     no_action_index: Optional[int] = Field(
         default=None,
         ge=0,
@@ -113,7 +109,7 @@ class ProcessStructureInput(BaseModel):
     """
     Structure of the process used for generation.
 
-    Does NOT contain process_name/domain – these come from query parameters.
+    Does NOT contain process_name/domain - these come from query parameters.
     """
 
     actors: List[str] = Field(
@@ -123,20 +119,17 @@ class ProcessStructureInput(BaseModel):
         description="List of actors (swimlanes)",
         examples=[["Customer", "System", "Warehouse"]],
     )
-
     actions: List[Action] = Field(
         ...,
         min_length=1,
         max_length=100,
         description="Sequence of actions in the process",
     )
-
     decisions: Optional[List[Decision]] = Field(
         default=None,
         max_length=10,
         description="Decisions in the process (optional)",
     )
-
     parallel_blocks: Optional[List[ParallelBlock]] = Field(
         default=None,
         max_length=5,
@@ -225,7 +218,10 @@ class CatalogVersion(BaseModel):
     status: str
     plantuml_code: str
     image_path: Optional[str] = None
-    prompt: dict | None = None   # ← PRIDAJ TENTO RIADOK
+    # Structured prompt stored with this version (returned to frontend for canvas restore).
+    prompt: Optional[Dict[str, Any]] = None
+    # Full canvas layout snapshot for pixel-perfect restore in catalog view.
+    canvas_state: Optional[Dict[str, Any]] = None
 
 
 class CatalogProcessDetail(BaseModel):
@@ -241,10 +237,11 @@ class ProcessInCatalog(BaseModel):
     domain: str | None = None
     versions_count: int
 
-
-model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NewVersionInput(BaseModel):
     plantuml_code: str
     prompt: dict | None = None
+    # Full canvas layout snapshot sent from the frontend on save.
+    canvas_state: Optional[Dict[str, Any]] = None

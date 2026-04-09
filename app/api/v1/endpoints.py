@@ -10,6 +10,7 @@ from fastapi import (
     Query,
     Body,
 )
+
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -128,6 +129,7 @@ def _build_process_structure_from_structured_dict(
                 "branch_yes": yes,
                 "branch_no": no,
             }
+
             # Only include indices if they are not None.
             # Range validity is checked later by ProcessStructureInput validator.
             if yes_index is not None:
@@ -171,7 +173,7 @@ async def generate_activity_diagram(
     ),
     version_name: Optional[str] = Query(
         default=None,
-        description="Optional human‑readable label for this version (e.g. v1, draft-1)",
+        description="Optional human-readable label for this version (e.g. v1, draft-1)",
         examples={"example": {"value": "v1 - initial draft"}},
     ),
     payload: ProcessStructureInput = Body(...),
@@ -180,7 +182,7 @@ async def generate_activity_diagram(
     Generate a UML Activity Diagram in PlantUML syntax from structured JSON input.
 
     This endpoint ONLY generates and validates PlantUML code.
-    It does NOT save anything to the database – saving is handled
+    It does NOT save anything to the database - saving is handled
     by separate catalog endpoints.
     """
     system_prompt = build_activity_diagram_system_prompt()
@@ -324,7 +326,7 @@ async def generate_activity_diagram_from_text(
     ),
     version_name: Optional[str] = Query(
         default=None,
-        description="Optional human‑readable label for this version (e.g. v1, draft-text-1)",
+        description="Optional human-readable label for this version (e.g. v1, draft-text-1)",
         examples={"example": {"value": "v1 - text initial draft"}},
     ),
     payload: TextGenerateInput = Body(...),
@@ -337,7 +339,7 @@ async def generate_activity_diagram_from_text(
     3) PlantUML validation
 
     This endpoint ONLY generates and validates PlantUML code.
-    It does NOT save anything to the database – saving is handled
+    It does NOT save anything to the database - saving is handled
     by separate catalog endpoints.
     """
     try:
@@ -467,9 +469,9 @@ async def save_version_from_structure(
     2) Generates PlantUML via LLM using the same system prompt as /generate.
     3) Validates PlantUML with PlantUML server.
     4) Renders PNG via PlantUML server and stores its path.
-    5) Saves a new *draft* Version in the catalog.
+    5) Saves a new draft Version in the catalog.
 
-    This endpoint is intended to be called when the user clicks "Save" in the
+    This endpoint is intended to be called when the user clicks 'Save' in the
     interactive visual editor. It returns the saved version including PlantUML
     code so the frontend can show both the text and rendered diagram.
     """
@@ -550,6 +552,7 @@ async def save_version_from_structure(
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
+            canvas_state=None,
         )
     except Exception as exc:
         raise HTTPException(
@@ -569,6 +572,7 @@ async def save_version_from_structure(
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
         prompt=version.prompt,
+        canvas_state=version.canvas_state,
     )
 
 
@@ -597,7 +601,7 @@ async def save_generated_version(
     ),
     payload: NewVersionInput = Body(
         ...,
-        description="PlantUML code (and optional prompt metadata) to be saved as a new version",
+        description="PlantUML code (and optional prompt + canvas_state) to be saved",
     ),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
@@ -650,6 +654,7 @@ async def save_generated_version(
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
+            canvas_state=payload.canvas_state,
         )
     except Exception as exc:
         raise HTTPException(
@@ -669,6 +674,7 @@ async def save_generated_version(
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
         prompt=version.prompt,
+        canvas_state=version.canvas_state,
     )
 
 
@@ -751,6 +757,7 @@ async def get_process_catalog(
             plantuml_code=v.plantuml_code,
             image_path=v.image_path,
             prompt=v.prompt,
+            canvas_state=v.canvas_state,
         )
         for v in versions
     ]
@@ -784,7 +791,7 @@ async def create_process_version(
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
-    Create a new *draft* version for an existing process using already generated PlantUML.
+    Create a new draft version for an existing process using already generated PlantUML.
 
     This endpoint does NOT call the LLM. It assumes that PlantUML was generated
     and inspected before, and only handles validation + saving to the catalog.
@@ -834,6 +841,7 @@ async def create_process_version(
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
+            canvas_state=payload.canvas_state,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -855,6 +863,7 @@ async def create_process_version(
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
         prompt=version.prompt,
+        canvas_state=version.canvas_state,
     )
 
 
@@ -880,7 +889,7 @@ async def update_draft_process_version(
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
-    Update an existing *draft* version using already generated (and inspected) PlantUML.
+    Update an existing draft version using already generated (and inspected) PlantUML.
 
     This endpoint does NOT call the LLM. It only validates the provided PlantUML,
     re-renders PNG diagram, and updates the corresponding draft version in the catalog.
@@ -900,6 +909,7 @@ async def update_draft_process_version(
         )
         .first()
     )
+
     if version is None:
         raise HTTPException(
             status_code=404,
@@ -952,9 +962,9 @@ async def update_draft_process_version(
             prompt_dict=payload.prompt or {},
             version_name=new_version_name,
             image_path=image_path,
+            canvas_state=payload.canvas_state,
         )
     except ValueError as exc:
-        # e.g. status != 'draft' inside service (extra safety)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
@@ -980,6 +990,7 @@ async def update_draft_process_version(
         plantuml_code=updated.plantuml_code,
         image_path=updated.image_path,
         prompt=updated.prompt,
+        canvas_state=updated.canvas_state,
     )
 
 
@@ -1108,4 +1119,5 @@ async def publish_process_version(
         plantuml_code=version.plantuml_code,
         image_path=version.image_path,
         prompt=version.prompt,
+        canvas_state=version.canvas_state,
     )

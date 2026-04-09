@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     JSON,
 )
+
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -51,7 +52,7 @@ class Version(Base):
     - id INTEGER PRIMARY KEY
     - process_id INTEGER NOT NULL (FK -> processes.id)
     - version_number INTEGER NOT NULL
-    - version_name VARCHAR NULL / "" (human‑readable version label)
+    - version_name VARCHAR NULL / "" (human-readable version label)
     - plantuml_code TEXT NOT NULL
     - prompt JSON NOT NULL (structured input / metadata)
     - llm_model VARCHAR(100) NOT NULL
@@ -59,6 +60,7 @@ class Version(Base):
     - status VARCHAR(20) NOT NULL DEFAULT 'draft'
     - created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     - image_path VARCHAR(255) NULL (path to rendered PNG diagram, optional)
+    - canvas_state JSON NULL (full canvas layout snapshot for exact restore)
     """
 
     __tablename__ = "versions"
@@ -78,7 +80,11 @@ class Version(Base):
     status = Column(String(20), nullable=False, default="draft")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    # New optional field for rendered PNG location (filesystem path or similar).
+    # Optional path to rendered PNG diagram.
     image_path = Column(String(255), nullable=True)
+
+    # Full canvas layout snapshot — stores node positions, lane widths,
+    # offsets so the diagram can be restored pixel-perfectly from the catalog.
+    canvas_state = Column(JSON, nullable=True)
 
     process = relationship("Process", back_populates="versions")
