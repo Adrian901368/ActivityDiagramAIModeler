@@ -2068,71 +2068,74 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onPanelDeleteNode(nodeId: string): void {
-    // 1. Spracovanie zmazania Auto Merge uzla
-    if (nodeId.startsWith('virtual-merge-')) {
-      const decisionId = nodeId.replace('virtual-merge-', '');
-      if (!this.deletedMergeIds.includes(decisionId)) {
-        this.deletedMergeIds = [...this.deletedMergeIds, decisionId];
+      if (nodeId.startsWith('virtual-merge-')) {
+        const decisionId = nodeId.replace('virtual-merge-', '');
+        if (!this.deletedMergeIds.includes(decisionId)) {
+          this.deletedMergeIds = [...this.deletedMergeIds, decisionId];
+        }
+        this.explicitEdges = this.explicitEdges.filter(
+          (e) => e.fromId !== nodeId && e.toId !== nodeId
+        );
+        this.selectedNodeId = null;
+        this.emitStructureChange();
+        return;
       }
-      // Odstránime aj prípadné explicitné hrany, ktoré do/z neho išli
-      this.explicitEdges = this.explicitEdges.filter(
-        (e) => e.fromId !== nodeId && e.toId !== nodeId
-      );
+
+      const nodeToDelete = this.nodes.find((n) => n.id === nodeId);
+      if (!nodeToDelete) return;
+
+      if (nodeToDelete.type === 'action') {
+        const deletedIndex = (nodeToDelete as ActionCanvasNode).actionIndex;
+
+        let remaining = this.nodes.filter((n) => n.id !== nodeId);
+
+        // Only re-index when the deleted node had a real actionIndex
+        if (deletedIndex !== null) {
+          remaining = remaining.map((n) => {
+            if (n.type !== 'action') return n;
+            const a = n as ActionCanvasNode;
+            if (a.actionIndex === null) return n;
+            if (a.actionIndex > deletedIndex) {
+              return { ...a, actionIndex: a.actionIndex - 1 };
+            }
+            return n;
+          });
+
+          remaining = remaining.map((n) => {
+            if (n.type !== 'decision') return n;
+            const d = n as DecisionCanvasNode;
+            const updateIndex = (idx: number | null): number | null => {
+              if (idx === null) return null;
+              if (idx === deletedIndex) return null;
+              if (idx > deletedIndex) return idx - 1;
+              return idx;
+            };
+            return {
+              ...d,
+              sourceActionIndex: updateIndex(d.sourceActionIndex),
+              yesActionIndex: updateIndex(d.yesActionIndex),
+              noActionIndex: updateIndex(d.noActionIndex),
+            } as DecisionCanvasNode;
+          });
+        }
+
+        // Clean up edges referencing the deleted action node
+        this.explicitEdges = this.explicitEdges.filter(
+          (e) => e.fromId !== nodeId && e.toId !== nodeId
+        );
+
+        this.nodes = remaining;
+
+      } else if (nodeToDelete.type === 'decision' || nodeToDelete.type === 'merge') {
+        this.nodes = this.nodes.filter((n) => n.id !== nodeId);
+        this.explicitEdges = this.explicitEdges.filter(
+          (e) => e.fromId !== nodeId && e.toId !== nodeId
+        );
+      }
+
       this.selectedNodeId = null;
       this.emitStructureChange();
-      return;
     }
-
-    // 2. Spracovanie zmazania reálnych uzlov (action, decision, manuálny merge)
-    const nodeToDelete = this.nodes.find((n) => n.id === nodeId);
-    if (!nodeToDelete) return;
-
-    if (nodeToDelete.type === 'action') {
-      const deletedIndex = (nodeToDelete as ActionCanvasNode).actionIndex;
-
-      let remaining = this.nodes.filter((n) => n.id !== nodeId);
-
-      remaining = remaining.map((n) => {
-        if (n.type !== 'action') return n;
-        const a = n as ActionCanvasNode;
-        if (a.actionIndex === null) return n;
-        if (a.actionIndex > (deletedIndex ?? -1)) {
-          return { ...a, actionIndex: a.actionIndex - 1 };
-        }
-        return n;
-      });
-
-      remaining = remaining.map((n) => {
-        if (n.type !== 'decision') return n;
-        const d = n as DecisionCanvasNode;
-
-        const updateIndex = (idx: number | null): number | null => {
-          if (idx === null) return null;
-          if (idx === deletedIndex) return null;
-          if (deletedIndex !== null && idx > deletedIndex) return idx - 1;
-          return idx;
-        };
-
-        return {
-          ...d,
-          sourceActionIndex: updateIndex(d.sourceActionIndex),
-          yesActionIndex: updateIndex(d.yesActionIndex),
-          noActionIndex: updateIndex(d.noActionIndex),
-        } as DecisionCanvasNode;
-      });
-
-      this.nodes = remaining;
-
-    } else if (nodeToDelete.type === 'decision' || nodeToDelete.type === 'merge') {
-      this.nodes = this.nodes.filter((n) => n.id !== nodeId);
-      this.explicitEdges = this.explicitEdges.filter(
-        (e) => e.fromId !== nodeId && e.toId !== nodeId
-      );
-    }
-
-    this.selectedNodeId = null;
-    this.emitStructureChange();
-  }
 
   // --- UTILS ---
 
@@ -2302,34 +2305,37 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onDeleteSwimlaneClick(index: number): void {
-    if (this.actors.length <= 1) return;
+      if (this.actors.length <= 1) return;
 
-    const removedActor = this.actors[index];
-    const currentWidths = this.getLaneWidths(this.actors.length);
-    const newActors = this.actors.filter((_, i) => i !== index);
-    const newWidths = currentWidths.filter((_, i) => i !== index);
+      const removedActor = this.actors[index];
+      const currentWidths = this.getLaneWidths(this.actors.length);
+      const removedWidth = currentWidths[index];
 
-    const newStarts = this.computeLaneStartsFromWidths(newWidths);
-    const newCenters = newWidths.map((w, i) => newStarts[i] + w / 2);
+      const newActors = this.actors.filter((_, i) => i !== index);
+      const newWidths = currentWidths.filter((_, i) => i !== index);
+      const newStarts = this.computeLaneStartsFromWidths(newWidths);
 
-    const fallbackActor = newActors[0];
-    const fallbackCenter = newCenters[0];
+      const fallbackActor = newActors[0];
+      const fallbackX = newStarts[0] + newWidths[0] / 2;
 
-    this.nodes = this.nodes.map((node) => {
-      if (node.actor === removedActor) {
-        return { ...node, actor: fallbackActor, x: fallbackCenter };
-      }
-      const actorIdx = newActors.findIndex((a) => a === node.actor);
-      if (actorIdx !== -1) {
-        return { ...node, x: newCenters[actorIdx] };
-      }
-      return node;
-    });
+      this.nodes = this.nodes.map((node) => {
+        // Nodes from the removed lane → move to lane 0
+        if (node.actor === removedActor) {
+          return { ...node, actor: fallbackActor, x: fallbackX };
+        }
+        // Nodes in lanes AFTER the removed one → shift left by the removed lane's width
+        const actorIdx = this.actors.indexOf(node.actor);
+        if (actorIdx > index) {
+          return { ...node, x: node.x - removedWidth };
+        }
+        // Nodes in lanes BEFORE the removed one → untouched
+        return node;
+      });
 
-    this.actors = newActors;
-    this.laneWidths = newWidths;
-    this.emitStructureChange();
-  }
+      this.actors = newActors;
+      this.laneWidths = newWidths;
+      this.emitStructureChange();
+    }
 
   private onRenameSwimlane(index: number, newName: string): void {
     const trimmed = newName.trim() || `Lane ${index + 1}`;
