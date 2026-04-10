@@ -1,5 +1,5 @@
 import { LitElement, html, css, svg, type TemplateResult } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+ import { customElement, state, property } from 'lit/decorators.js';
 
 type NodeType = 'action' | 'decision' | 'merge';
 type VirtualNodeKind = 'start' | 'merge' | 'final';
@@ -382,6 +382,75 @@ export class AdCanvasEditor extends LitElement {
     .panel-delete-btn:hover {
       background: #fee2e2;
     }  
+    
+    .lane-panel {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+      flex-wrap: wrap;
+    }
+
+    .lane-panel-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+      white-space: nowrap;
+      margin-right: 2px;
+    }
+
+    .lane-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 999px;
+      padding: 2px 4px 2px 8px;
+    }
+
+    .lane-name-input {
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 11px;
+      color: #374151;
+      width: 90px;
+      font-family: inherit;
+      padding: 0;
+    }
+
+    .lane-name-input:focus {
+      color: #111827;
+    }
+
+    .lane-delete-btn {
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: #9ca3af;
+      font-size: 14px;
+      padding: 0 4px;
+      line-height: 1;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      transition: background 0.1s ease, color 0.1s ease;
+    }
+
+    .lane-delete-btn:hover:not(:disabled) {
+      background: #fee2e2;
+      color: #ef4444;
+    }
+
+    .lane-delete-btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
   `;
 
   @state() private actors: string[] = [];
@@ -400,6 +469,8 @@ export class AdCanvasEditor extends LitElement {
   @state() private selectedEdge: { id: string; fromId: string; toId: string; midX: number; midY: number } | null = null;
   @state() private deletedEdgeIds: string[] = [];
   @state() private deletedMergeIds: string[] = [];
+
+  @property({ type: Boolean, reflect: true }) readOnly = false;
 
 
   private defaultLaneWidth = 420;
@@ -764,94 +835,103 @@ export class AdCanvasEditor extends LitElement {
   }
 
   override render() {
-    const laneCount = Math.max(this.actors.length, 1);
-    const totalWidth = this.computeTotalWidth(laneCount);
-    const layout = this.buildDerivedLayout();
+      const laneCount = Math.max(this.actors.length, 1);
+      const totalWidth = this.computeTotalWidth(laneCount);
+      const layout = this.buildDerivedLayout();
 
-    const realNodeBottom = this.nodes.length
-      ? Math.max(...this.nodes.map((n) => n.y)) + Math.max(this.nodeHeight, this.decisionSize)
-      : this.laneHeaderHeight + 240;
+      const realNodeBottom = this.nodes.length
+        ? Math.max(...this.nodes.map((n) => n.y)) + Math.max(this.nodeHeight, this.decisionSize)
+        : this.laneHeaderHeight + 240;
 
-    const mergeBottom = layout.mergeNodes.length
-      ? Math.max(...layout.mergeNodes.map((m) => m.y + this.mergeSize / 2))
-      : 0;
+      const mergeBottom = layout.mergeNodes.length
+        ? Math.max(...layout.mergeNodes.map((m) => m.y + this.mergeSize / 2))
+        : 0;
 
-    const startBottom = layout.startNode ? layout.startNode.y + 12 : 0;
-    const finalBottom = layout.finalNode ? layout.finalNode.y + 14 : 0;
+      const startBottom = layout.startNode ? layout.startNode.y + 12 : 0;
+      const finalBottom = layout.finalNode ? layout.finalNode.y + 14 : 0;
 
-    const totalHeight = Math.max(
-      540,
-      realNodeBottom + 140,
-      mergeBottom + 140,
-      startBottom + 80,
-      finalBottom + 100,
-    );
+      const totalHeight = Math.max(
+        540,
+        realNodeBottom + 140,
+        mergeBottom + 140,
+        startBottom + 80,
+        finalBottom + 100,
+      );
 
-    return html`
-      <div class="wrapper">
-        <div class="header">
-          <div class="header-title">
-            <div class="title">Canvas editor</div>
-            <div class="subtitle">
-              Drag actions, decisions, control nodes, and swimlane dividers.
+      return html`
+          <div class="wrapper">
+            <div class="header">
+              <div class="header-title">
+                <div class="title">Canvas editor</div>
+                <div class="subtitle">
+                  ${this.readOnly
+                    ? 'Read-only view.'
+                    : 'Drag actions, decisions, control nodes, and swimlane dividers.'}
+                </div>
+              </div>
+              ${!this.readOnly ? html`
+                <div class="toolbar">
+                  <button class="btn" @click=${this.onAddMergeClick}>
+                    + Add merge node
+                  </button>
+                  <button class="btn" @click=${this.onAddActionClick}>
+                    + Add action node
+                  </button>
+                  <button class="btn" @click=${this.onAddDecisionClick}>
+                    + Add decision node
+                  </button>
+                  <button class="btn" @click=${this.onAddSwimlaneClick}>
+                    + Add swimlane
+                  </button>
+                </div>
+              ` : null}
+            </div>
+        
+            ${!this.readOnly ? this.renderLanePanel() : null}
+        
+            <div class="editor-body">
+              <div
+                class="canvas-container"
+                @pointermove=${!this.readOnly ? this.onCanvasPointerMove : null}
+                @pointerup=${!this.readOnly ? this.onCanvasPointerUp : null}
+                @pointerleave=${!this.readOnly ? this.onCanvasPointerUp : null}
+                @pointerdown=${!this.readOnly ? this.onCanvasPointerDown : null}
+              >
+                <svg
+                  viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
+                  width=${totalWidth}
+                  height=${totalHeight}
+                >
+                  ${this.renderSwimlanes(totalHeight)}
+                  ${this.renderEdges(layout)}
+                  ${this.renderVirtualNodes(layout)}
+                  ${!this.readOnly ? this.renderConnectingLine() : null}
+                  ${this.renderNodes()}
+                </svg>
+        
+                ${this.actors.length === 0 && this.nodes.length === 0
+                  ? html`
+                      <div class="empty-overlay">
+                        <div class="empty-text">
+                          No actors or actions yet.
+                        </div>
+                      </div>
+                    `
+                  : null}
+              </div>
+        
+              ${!this.readOnly ? html`
+                <div class="sidebar">
+                  ${this.renderActionPanel()}
+                  ${this.renderDecisionPanel()}
+                  ${this.renderEdgePanel()}
+                  ${this.renderMergePanel()}
+                </div>
+              ` : null}
             </div>
           </div>
-          <div class="toolbar">
-            <button class="btn" @click=${this.onAddMergeClick}>
-              + Add merge node
-            </button>
-            <button class="btn" @click=${this.onAddActionClick}>
-              + Add action node
-            </button>
-            <button class="btn" @click=${this.onAddDecisionClick}>
-              + Add decision node
-            </button>
-          </div>
-        </div>
-
-        <div class="editor-body">
-          <div
-            class="canvas-container"
-            @pointermove=${this.onCanvasPointerMove}
-            @pointerup=${this.onCanvasPointerUp}
-            @pointerleave=${this.onCanvasPointerUp}
-            @pointerdown=${this.onCanvasPointerDown}
-          >
-            <svg
-              viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
-              width=${totalWidth}
-              height=${totalHeight}
-              @pointerdown=${this.onCanvasPointerDown}
-            >
-              ${this.renderSwimlanes(totalHeight)}
-              ${this.renderEdges(layout)}
-              ${this.renderVirtualNodes(layout)} 
-              ${this.renderConnectingLine()}
-              ${this.renderNodes()}
-            </svg>
-
-            ${this.actors.length === 0 && this.nodes.length === 0
-              ? html`
-                  <div class="empty-overlay">
-                    <div class="empty-text">
-                      No actors or actions yet. Load structure using
-                      <code>setStructure()</code>.
-                    </div>
-                  </div>
-                `
-              : null}
-          </div>
-
-          <div class="sidebar">
-            ${this.renderActionPanel()}
-            ${this.renderDecisionPanel()}
-            ${this.renderEdgePanel()}
-            ${this.renderMergePanel()}
-          </div>
-        </div>
-      </div>
-    `;
-  }
+        `;
+    }
 
   // --- NEW SIDEBAR PANELS ---
 
@@ -1040,25 +1120,24 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onAddMergeClick(): void {
-    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-    if (!this.actors.length) {
-      this.actors = actors;
-      this.syncLaneWidths(actors.length);
-    }
-    const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
-    const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
+      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+      if (!this.actors.length) {
+        this.actors = actors;
+        this.syncLaneWidths(actors.length);
+      }
+      const { x, y } = this.getNewNodePosition();
 
-    this.nodes = [
-      ...this.nodes,
-      {
-        id: this.generateNodeId(),
-        type: 'merge',
-        actor: actors[0],
-        x: laneCenters[0],
-        y,
-      } as MergeCanvasNode,
-    ];
-    this.emitStructureChange();
+      this.nodes = [
+        ...this.nodes,
+        {
+          id: this.generateNodeId(),
+          type: 'merge',
+          actor: actors[actors.length - 1],
+          x,
+          y,
+        } as MergeCanvasNode,
+      ];
+      this.emitStructureChange();
   }
 
   private renderSwimlanes(totalHeight: number) {
@@ -1098,92 +1177,112 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private renderNodes() {
-    return svg`${this.nodes.map((node) => {
-      const isSelected = this.selectedNodeId === node.id;
-      const isHovered = this.hoveredNodeId === node.id;
-
-      const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#9ca3af';
-      const strokeWidth = isHovered || isSelected ? '2.5' : '1.5';
-      const fillColor = isHovered ? '#f0fdf4' : isSelected ? '#eff6ff' : '#ffffff';
-
-      if (node.type === 'action') {
-        const actionNode = node as ActionCanvasNode;
-        const rawText = actionNode.text || 'New action';
-        const lines = this.wrapText(rawText, 22);
-        const dims = this.getActionDimensions(lines);
-        const x = node.x - dims.width / 2;
-        const y = node.y - dims.height / 2;
-        const startYOffset = -((lines.length - 1) * 14) / 2;
-
-        const portY = node.y + dims.height / 2;
-
-        return svg`
-          <g data-node-id="${node.id}" style="cursor: grab;">
-            <rect x="${x}" y="${y}" rx="6" ry="6" width="${dims.width}" height="${dims.height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="11" font-family="system-ui, -apple-system, sans-serif">
-              ${lines.map((line, index) => svg`
-                <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
-              `)}
-            </text>
-            ${isSelected ? svg`
-              <circle data-port-type="action-out" data-port-node-id="${node.id}" cx="${node.x}" cy="${portY}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-            ` : null}
-          </g>
-        `;
-      } else if (node.type === 'decision') {
-        const d = node as DecisionCanvasNode;
-        const rawCondition = d.condition || 'Decision';
-        const lines = this.wrapText(rawCondition, 18);
-        const dims = this.getDecisionDimensions(lines);
-
-        const points = [
-          `${node.x - dims.halfW},${node.y}`,
-          `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
-          `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
-          `${node.x + dims.halfW},${node.y}`,
-          `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
-          `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
-        ].join(' ');
-
-        const startYOffset = -((lines.length - 1) * 14) / 2;
-
-        return svg`
-          <g data-node-id="${node.id}" style="cursor: grab;">
-            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central" fill="#111827" font-size="10" font-weight="500" font-family="system-ui, -apple-system, sans-serif">
-              ${lines.map((line, index) => svg`
-                <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
-              `)}
-            </text>
-            <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end" dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">${d.yesText || 'yes'}</text>
-            <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start" dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">${d.noText || 'no'}</text>
-
-            ${isSelected ? svg`
-              <circle data-port-type="decision-yes" data-port-node-id="${node.id}" cx="${node.x - dims.halfW}" cy="${node.y}" r="6" fill="#059669" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-              <circle data-port-type="decision-no" data-port-node-id="${node.id}" cx="${node.x + dims.halfW}" cy="${node.y}" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-            ` : null}
-          </g>
-        `;
-      } else if (node.type === 'merge') {
-        const half = this.mergeSize / 2;
-        const points = [
-          `${node.x} ${node.y - half}`,
-          `${node.x + half} ${node.y}`,
-          `${node.x} ${node.y + half}`,
-          `${node.x - half} ${node.y}`,
-        ].join(' ');
-
-        return svg`
-          <g data-node-id="${node.id}" style="cursor: grab;">
-            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-            ${isSelected ? svg`
-              <circle data-port-type="action-out" data-port-node-id="${node.id}" cx="${node.x}" cy="${node.y + half + 4}" r="6" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" style="cursor: crosshair;" />
-            ` : null}
-          </g>
-        `;
-      }
-      return svg``;
-    })}`;
+      return svg`${this.nodes.map((node) => {
+        const isSelected = this.selectedNodeId === node.id;
+        const isHovered = this.hoveredNodeId === node.id;
+    
+        const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#9ca3af';
+        const strokeWidth = isHovered || isSelected ? '2.5' : '1.5';
+        const fillColor = isHovered ? '#f0fdf4' : isSelected ? '#eff6ff' : '#ffffff';
+    
+        if (node.type === 'action') {
+          const actionNode = node as ActionCanvasNode;
+          const rawText = actionNode.text || 'New action';
+          const lines = this.wrapText(rawText, 22);
+          const dims = this.getActionDimensions(lines);
+          const x = node.x - dims.width / 2;
+          const y = node.y - dims.height / 2;
+          const startYOffset = -((lines.length - 1) * 14) / 2;
+          const portY = node.y + dims.height / 2;
+    
+          return svg`
+            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+              <rect x="${x}" y="${y}" rx="6" ry="6" width="${dims.width}" height="${dims.height}"
+                fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+              <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
+                fill="#111827" font-size="11" font-family="system-ui, -apple-system, sans-serif">
+                ${lines.map((line, index) => svg`
+                  <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
+                `)}
+              </text>
+              ${isSelected && !this.readOnly ? svg`
+                <circle data-port-type="action-out" data-port-node-id="${node.id}"
+                  cx="${node.x}" cy="${portY}" r="6"
+                  fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
+                  style="cursor: crosshair;" />
+              ` : null}
+            </g>
+          `;
+        } else if (node.type === 'decision') {
+          const d = node as DecisionCanvasNode;
+          const rawCondition = d.condition || 'Decision';
+          const lines = this.wrapText(rawCondition, 18);
+          const dims = this.getDecisionDimensions(lines);
+    
+          const points = [
+            `${node.x - dims.halfW},${node.y}`,
+            `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
+            `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
+            `${node.x + dims.halfW},${node.y}`,
+            `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
+            `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
+          ].join(' ');
+    
+          const startYOffset = -((lines.length - 1) * 14) / 2;
+    
+          return svg`
+            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+              <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+              <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
+                fill="#111827" font-size="10" font-weight="500"
+                font-family="system-ui, -apple-system, sans-serif">
+                ${lines.map((line, index) => svg`
+                  <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
+                `)}
+              </text>
+              <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end"
+                dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">
+                ${d.yesText || 'yes'}
+              </text>
+              <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start"
+                dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">
+                ${d.noText || 'no'}
+              </text>
+              ${isSelected && !this.readOnly ? svg`
+                <circle data-port-type="decision-yes" data-port-node-id="${node.id}"
+                  cx="${node.x - dims.halfW}" cy="${node.y}" r="6"
+                  fill="#059669" stroke="#ffffff" stroke-width="1.5"
+                  style="cursor: crosshair;" />
+                <circle data-port-type="decision-no" data-port-node-id="${node.id}"
+                  cx="${node.x + dims.halfW}" cy="${node.y}" r="6"
+                  fill="#dc2626" stroke="#ffffff" stroke-width="1.5"
+                  style="cursor: crosshair;" />
+              ` : null}
+            </g>
+          `;
+        } else if (node.type === 'merge') {
+          const half = this.mergeSize / 2;
+          const points = [
+            `${node.x} ${node.y - half}`,
+            `${node.x + half} ${node.y}`,
+            `${node.x} ${node.y + half}`,
+            `${node.x - half} ${node.y}`,
+          ].join(' ');
+    
+          return svg`
+            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+              <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+              ${isSelected && !this.readOnly ? svg`
+                <circle data-port-type="action-out" data-port-node-id="${node.id}"
+                  cx="${node.x}" cy="${node.y + half + 4}" r="6"
+                  fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
+                  style="cursor: crosshair;" />
+              ` : null}
+            </g>
+          `;
+        }
+        return svg``;
+      })}`;
   }
 
   private renderVirtualNodes(layout: DerivedLayout) {
@@ -2094,55 +2193,155 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onAddActionClick(): void {
-    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-    if (!this.actors.length) {
-      this.actors = actors;
-      this.syncLaneWidths(actors.length);
-    }
-    const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
-    const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
+      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+      if (!this.actors.length) {
+        this.actors = actors;
+        this.syncLaneWidths(actors.length);
+      }
+      const { x, y } = this.getNewNodePosition();
 
-    this.nodes = [
-      ...this.nodes,
-      {
-        id: this.generateNodeId(),
-        type: 'action',
-        actor: actors[0],
-        text: 'New action',
-        x: laneCenters[0],
-        y,
-        actionIndex: null,
-      } as ActionCanvasNode,
-    ];
-    this.emitStructureChange();
+      this.nodes = [
+        ...this.nodes,
+        {
+          id: this.generateNodeId(),
+          type: 'action',
+          actor: actors[actors.length - 1],
+          text: 'New action',
+          x,
+          y,
+          actionIndex: null,
+        } as ActionCanvasNode,
+      ];
+      this.emitStructureChange();
   }
 
   private onAddDecisionClick(): void {
-    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-    if (!this.actors.length) {
-      this.actors = actors;
-    }
-    this.syncLaneWidths(actors.length);
+      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+      if (!this.actors.length) {
+        this.actors = actors;
+      }
+      this.syncLaneWidths(actors.length);
+      const { x, y } = this.getNewNodePosition();
 
-    const laneCenters = this.computeLaneCenters(Math.max(actors.length, 1));
-    const y = this.laneHeaderHeight + 80 + this.nodes.length * (this.nodeHeight + this.nodeVerticalGap);
+      this.nodes = [
+        ...this.nodes,
+        {
+          id: this.generateNodeId(),
+          type: 'decision',
+          actor: actors[actors.length - 1],
+          condition: 'Decision',
+          yesText: 'Yes branch',
+          noText: 'No branch',
+          yesActionIndex: null,
+          noActionIndex: null,
+          sourceActionIndex: null,
+          x,
+          y,
+        } as DecisionCanvasNode,
+      ];
+      this.emitStructureChange();
+  }
 
-    this.nodes = [
-      ...this.nodes,
-      {
-        id: this.generateNodeId(),
-        type: 'decision',
-        actor: actors[0],
-        condition: 'Decision',
-        yesText: 'Yes branch',
-        noText: 'No branch',
-        yesActionIndex: null,
-        noActionIndex: null,
-        sourceActionIndex: null,
-        x: laneCenters[0],
-        y,
-      } as DecisionCanvasNode,
-    ];
+  private getNewNodePosition(): { x: number; y: number } {
+      // Y: vertical center of the current scroll view
+      const container = this.renderRoot.querySelector('.canvas-container') as HTMLElement | null;
+      let y = this.laneHeaderHeight + 200;
+      if (container) {
+        const visibleCenterY = container.scrollTop + container.clientHeight / 2;
+        y = Math.max(this.laneHeaderHeight + 60, visibleCenterY);
+      }
+
+      // X: center of the rightmost (last) swimlane
+      const count = Math.max(this.actors.length, 1);
+      const widths = this.getLaneWidths(count);
+      const starts = this.computeLaneStartsFromWidths(widths);
+      const lastIndex = widths.length - 1;
+      const x = starts[lastIndex] + widths[lastIndex] + 50;
+
+      return { x, y };
+  }
+
+    private renderLanePanel() {
+    if (!this.actors.length) return null;
+
+    return html`
+      <div class="lane-panel">
+        <span class="lane-panel-label">Lanes</span>
+        ${this.actors.map(
+          (actor, index) => html`
+            <div class="lane-item">
+              <input
+                class="lane-name-input"
+                type="text"
+                .value=${actor}
+                @change=${(e: Event) =>
+                  this.onRenameSwimlane(index, (e.target as HTMLInputElement).value)}
+                title="Rename swimlane"
+              />
+              <button
+                class="lane-delete-btn"
+                ?disabled=${this.actors.length <= 1}
+                @click=${() => this.onDeleteSwimlaneClick(index)}
+                title="Delete swimlane"
+              >
+                ×
+              </button>
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private onAddSwimlaneClick(): void {
+    const newName = `Lane ${this.actors.length + 1}`;
+    const currentWidths = this.getLaneWidths(this.actors.length);
+    this.actors = [...this.actors, newName];
+    this.laneWidths = [...currentWidths, this.defaultLaneWidth];
+    this.emitStructureChange();
+  }
+
+  private onDeleteSwimlaneClick(index: number): void {
+    if (this.actors.length <= 1) return;
+
+    const removedActor = this.actors[index];
+    const currentWidths = this.getLaneWidths(this.actors.length);
+    const newActors = this.actors.filter((_, i) => i !== index);
+    const newWidths = currentWidths.filter((_, i) => i !== index);
+
+    const newStarts = this.computeLaneStartsFromWidths(newWidths);
+    const newCenters = newWidths.map((w, i) => newStarts[i] + w / 2);
+
+    const fallbackActor = newActors[0];
+    const fallbackCenter = newCenters[0];
+
+    this.nodes = this.nodes.map((node) => {
+      if (node.actor === removedActor) {
+        return { ...node, actor: fallbackActor, x: fallbackCenter };
+      }
+      const actorIdx = newActors.findIndex((a) => a === node.actor);
+      if (actorIdx !== -1) {
+        return { ...node, x: newCenters[actorIdx] };
+      }
+      return node;
+    });
+
+    this.actors = newActors;
+    this.laneWidths = newWidths;
+    this.emitStructureChange();
+  }
+
+  private onRenameSwimlane(index: number, newName: string): void {
+    const trimmed = newName.trim() || `Lane ${index + 1}`;
+    const oldName = this.actors[index];
+
+    this.nodes = this.nodes.map((node) =>
+      node.actor === oldName ? { ...node, actor: trimmed } : node
+    );
+
+    const newActors = [...this.actors];
+    newActors[index] = trimmed;
+    this.actors = newActors;
     this.emitStructureChange();
   }
 

@@ -950,6 +950,7 @@ export class AdCatalogView extends LitElement {
               <div style="position: relative; overflow: hidden; border-radius: 8px;">
                   <ad-canvas-editor
                     data-version-id="${v.id}"
+                    .readOnly=${true}
                   ></ad-canvas-editor>
                   <div style="
                     position: absolute;
