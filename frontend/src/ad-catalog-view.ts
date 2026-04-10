@@ -1307,57 +1307,58 @@ export class AdCatalogView extends LitElement {
   // ===== HANDLERS: CREATE / UPDATE VERSION (NAVIGATION) =====
 
   private onCreateVersionClick(): void {
-    if (!this.processDetail || !this.processDetail.versions.length) {
-      this.detailError =
-        'Cannot create new version – process detail or versions are not loaded.';
-      return;
+      if (!this.processDetail || !this.processDetail.versions.length) {
+        this.detailError =
+          'Cannot create new version – process detail or versions are not loaded.';
+        return;
+      }
+
+      const versions = this.processDetail.versions;
+
+      // Prefer active version; otherwise newest by created_at
+      const base =
+        versions.find((v) => v.status === 'active') ??
+        [...versions].sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0];
+
+      this.subView = 'create';
+      this.editMode = 'create';
+      this.editProcessId = this.processDetail.process_id;
+      this.editProcessName = this.processDetail.process_name;
+      this.editVersionNumber = null;
+      this.editVersionLabel = '';
+      this.editDescriptionOriginal = '';
+      this.editDescriptionCurrent = '';
+      this.editGeneratedPlantuml = base ? base.plantuml_code : '';
+      this.editPromptJson = base ? base.prompt : null;
+      this.editPromptText =
+        base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
+      this.editError = '';
+      this.isPlantUmlExpanded = false;
+
+      this.initCanvasForEdit(base?.canvas_state ?? null, this.editPromptJson);
     }
 
-    const versions = this.processDetail.versions;
-
-    // Prefer active version; otherwise newest by created_at.
-    const base =
-      versions.find((v) => v.status === 'active') ??
-      [...versions].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )[0];
-
-    this.subView = 'create';
-    this.editMode = 'create';
-    this.editProcessId = this.processDetail.process_id;
-    this.editProcessName = this.processDetail.process_name;
-    this.editVersionNumber = null;
-    this.editVersionLabel = '';
-    this.editDescriptionOriginal = '';
-    this.editDescriptionCurrent = '';
-    this.editGeneratedPlantuml = base ? base.plantuml_code : '';
-    this.editPromptJson = base ? base.prompt : null;
-    this.editPromptText = base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
-    this.editError = '';
-    this.isPlantUmlExpanded = false;
-
-    this.initCanvasStructure(this.editPromptJson);
-  }
-
   private onUpdateVersionClick(v: CatalogVersion): void {
-    if (v.status !== 'draft') return;
-    this.subView = 'update';
-    this.editMode = 'update';
-    this.editProcessId = v.process_id;
-    this.editProcessName = this.processDetail?.process_name ?? '';
-    this.editVersionNumber = v.version_number;
-    this.editVersionLabel = v.version_name;
-    this.editDescriptionOriginal = '';
-    this.editDescriptionCurrent = '';
-    this.editGeneratedPlantuml = v.plantuml_code;
-    this.editPromptJson = v.prompt ?? null;
-    this.editPromptText =
-      v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
-    this.editError = '';
-    this.isPlantUmlExpanded = false;
+      if (v.status !== 'draft') return;
+      this.subView = 'update';
+      this.editMode = 'update';
+      this.editProcessId = v.process_id;
+      this.editProcessName = this.processDetail?.process_name ?? '';
+      this.editVersionNumber = v.version_number;
+      this.editVersionLabel = v.version_name;
+      this.editDescriptionOriginal = '';
+      this.editDescriptionCurrent = '';
+      this.editGeneratedPlantuml = v.plantuml_code;
+      this.editPromptJson = v.prompt ?? null;
+      this.editPromptText =
+        v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
+      this.editError = '';
+      this.isPlantUmlExpanded = false;
 
-    this.initCanvasStructure(this.editPromptJson);
+      this.initCanvasForEdit(v.canvas_state ?? null, this.editPromptJson);
   }
 
   private onBackToCatalogClick(): void {
@@ -1382,34 +1383,48 @@ export class AdCatalogView extends LitElement {
     }
   }
 
-  private async initCanvasStructure(prompt: any) {
-    await this.updateComplete;
-    const canvas = this.renderRoot?.querySelector('ad-canvas-editor') as any;
-    if (canvas && typeof canvas.setStructure === 'function') {
-      if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
-        const structure = {
-          actors: prompt.actors as string[],
-          actions: (prompt.actions as any[]).map((a: any) => ({
-            actor: a.actor,
-            action: a.action,
-          })),
-          decisions: Array.isArray(prompt.decisions)
-            ? (prompt.decisions as any[]).map((d: any) => ({
-                condition: d.condition,
-                branchyes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
-                branchno: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
-                yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
-                no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
-              }))
-            : null,
-          parallelblocks: null,
-        };
-        canvas.setStructure(structure);
-      } else {
-        canvas.setStructure({ actors: [], actions: [], decisions: [] });
+  private async initCanvasForEdit(
+      canvasState: Record<string, unknown> | null,
+      prompt: any
+    ): Promise<void> {
+      await this.updateComplete;
+      const canvas = this.renderRoot?.querySelector(
+        'ad-canvas-editor:not([data-version-id])'
+      ) as any;
+      if (!canvas) return;
+
+      // Prefer saved pixel-perfect state over recalculated layout
+      if (canvasState && typeof canvas.setFullState === 'function') {
+        canvas.setFullState(canvasState);
+        return;
+      }
+
+      // Fallback: rebuild layout from prompt structure
+      if (typeof canvas.setStructure === 'function') {
+        if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
+          const structure = {
+            actors: prompt.actors as string[],
+            actions: (prompt.actions as any[]).map((a: any) => ({
+              actor: a.actor,
+              action: a.action,
+            })),
+            decisions: Array.isArray(prompt.decisions)
+              ? (prompt.decisions as any[]).map((d: any) => ({
+                  condition: d.condition,
+                  branchyes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+                  branchno: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+                  yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
+                  no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
+                }))
+              : null,
+            parallelblocks: null,
+          };
+          canvas.setStructure(structure);
+        } else {
+          canvas.setStructure({ actors: [], actions: [], decisions: [] });
+        }
       }
     }
-  }
 
 
   private onEditVersionLabelChange(event: Event): void {
@@ -1482,7 +1497,7 @@ export class AdCatalogView extends LitElement {
         data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
 
       this.isPlantUmlExpanded = true;
-      this.initCanvasStructure(this.editPromptJson);
+      this.initCanvasForEdit(null, this.editPromptJson);
     } catch (error: unknown) {
       console.error('Failed to generate diagram from text', error);
       this.editError =
