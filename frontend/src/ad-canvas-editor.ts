@@ -473,7 +473,6 @@ export class AdCanvasEditor extends LitElement {
   @property({ type: Boolean, reflect: true }) readOnly = false;
 
 
-  private defaultLaneWidth = 420;
   private minLaneWidth = 260;
   private lanePaddingX = 120;
   private laneHeaderHeight = 44;
@@ -833,6 +832,26 @@ export class AdCanvasEditor extends LitElement {
     }
     return this.nodeHeight;
   }
+
+    private getDefaultLaneWidth(): number {
+      let maxNodeHalfWidth = 90; // fallback for empty canvas
+
+      for (const node of this.nodes) {
+        if (node.type === 'action') {
+          const lines = this.wrapText((node as ActionCanvasNode).text || '', 22);
+          const dims = this.getActionDimensions(lines);
+          maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.width / 2);
+        } else if (node.type === 'decision') {
+          const lines = this.wrapText((node as DecisionCanvasNode).condition || '', 18);
+          const dims = this.getDecisionDimensions(lines);
+          maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.halfW);
+        }
+      }
+
+      // Both yes/no branches must fit: (branchOffset + nodeHalfWidth) on each side + 20% padding
+      const base = (this.branchOffset + maxNodeHalfWidth) * 2;
+      return Math.round(base * 1.2);
+    }
 
   override render() {
       const laneCount = Math.max(this.actors.length, 1);
@@ -1736,7 +1755,7 @@ export class AdCanvasEditor extends LitElement {
         let laneIndex = this.actors.findIndex((actor) => actor === node.actor);
         if (laneIndex < 0) laneIndex = this.getLaneIndexForX(node.x, widths);
         const laneStart = starts[laneIndex] ?? starts[0] ?? this.lanePaddingX;
-        const laneWidth = widths[laneIndex] ?? widths[0] ?? this.defaultLaneWidth;
+        const laneWidth = widths[laneIndex] ?? widths[0] ?? this.getDefaultLaneWidth();
         const ratio = laneWidth > 0 ? (node.x - laneStart) / laneWidth : 0.5;
         return { nodeId: node.id, laneIndex, ratio: Math.max(0, Math.min(1, ratio)) };
       });
@@ -1842,7 +1861,7 @@ export class AdCanvasEditor extends LitElement {
         const tracked = trackedById.get(node.id);
         if (!tracked) return node;
         const laneStart = nextStarts[tracked.laneIndex] ?? nextStarts[0] ?? this.lanePaddingX;
-        const laneWidth = nextWidths[tracked.laneIndex] ?? nextWidths[0] ?? this.defaultLaneWidth;
+        const laneWidth = nextWidths[tracked.laneIndex] ?? nextWidths[0] ?? this.getDefaultLaneWidth();
         return { ...node, x: laneStart + tracked.ratio * laneWidth };
       });
       return;
@@ -2140,13 +2159,15 @@ export class AdCanvasEditor extends LitElement {
   // --- UTILS ---
 
   private syncLaneWidths(count: number): void {
-    if (this.laneWidths.length === count) return;
-    this.laneWidths = Array.from({ length: Math.max(count, 1) }, () => this.defaultLaneWidth);
+      if (this.laneWidths.length === count) return;
+      const w = this.getDefaultLaneWidth();
+      this.laneWidths = Array.from({ length: Math.max(count, 1) }, () => w);
   }
 
   private getLaneWidths(count: number): number[] {
-    if (this.laneWidths.length === count && count > 0) return this.laneWidths;
-    return Array.from({ length: Math.max(count, 1) }, () => this.defaultLaneWidth);
+      if (this.laneWidths.length === count && count > 0) return this.laneWidths;
+      const w = this.getDefaultLaneWidth();
+      return Array.from({ length: Math.max(count, 1) }, () => w);
   }
 
   private computeLaneStartsFromWidths(widths: number[]): number[] {
@@ -2300,7 +2321,7 @@ export class AdCanvasEditor extends LitElement {
     const newName = `Lane ${this.actors.length + 1}`;
     const currentWidths = this.getLaneWidths(this.actors.length);
     this.actors = [...this.actors, newName];
-    this.laneWidths = [...currentWidths, this.defaultLaneWidth];
+    this.laneWidths = [...currentWidths, this.getDefaultLaneWidth()];
     this.emitStructureChange();
   }
 

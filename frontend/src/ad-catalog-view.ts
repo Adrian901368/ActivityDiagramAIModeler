@@ -555,6 +555,7 @@ export class AdCatalogView extends LitElement {
   @state() private editPromptText = '';
 
   @state() private isPlantUmlExpanded = false;
+  @state() private isDetailCodeExpanded = false;
 
   protected updated(changedProperties: Map<string, unknown>): void {
     super.updated(changedProperties);
@@ -928,26 +929,26 @@ export class AdCatalogView extends LitElement {
   }
 
   private renderExpandedPlantuml() {
-    if (
-      !this.processDetail ||
-      this.expandedVersionId === null ||
-      !this.processDetail.versions.length
-    ) {
-      return null;
-    }
+      if (
+        !this.processDetail ||
+        this.expandedVersionId === null ||
+        !this.processDetail.versions.length
+      ) {
+        return null;
+      }
 
-    const v = this.processDetail.versions.find(
-      (ver) => ver.id === this.expandedVersionId
-    );
-    if (!v) return null;
+      const v = this.processDetail.versions.find(
+        (ver) => ver.id === this.expandedVersionId
+      );
+      if (!v) return null;
 
-    return html`
-      <div style="margin-top: 8px;">
-        <div class="card-subtitle">Visual diagram representation</div>
-
-        ${v.prompt
-          ? html`
-              <div style="position: relative; overflow: hidden; border-radius: 8px;">
+      return html`
+        <div style="margin-top: 8px;">
+          <div class="card-subtitle">Visual diagram representation</div>
+    
+          ${v.prompt
+            ? html`
+                <div style="position: relative; overflow: hidden; border-radius: 8px;">
                   <ad-canvas-editor
                     data-version-id="${v.id}"
                     .readOnly=${true}
@@ -959,19 +960,45 @@ export class AdCatalogView extends LitElement {
                     cursor: default;
                     pointer-events: none;
                   "></div>
+                </div>
+              `
+            : html`
+                <div class="placeholder small" style="margin-top: 8px;">
+                  No diagram structure saved for this version.
+                </div>
+              `}
+    
+          <!-- PlantUML code — hidden by default, same pattern as edit view -->
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 16px;
+          ">
+            <div>
+              <div class="card-subtitle">Generated PlantUML</div>
+              <div style="font-size: 11px; color: #6b7280;">
+                Inspect the PlantUML code for this version.
               </div>
-            `
-          : html`
-              <div class="placeholder small" style="margin-top: 8px;">
-                No diagram structure saved for this version.
-              </div>
-            `}
-
-        <div class="card-subtitle" style="margin-top: 16px;">PlantUML code for selected version</div>
-        <pre>${v.plantuml_code}</pre>
-      </div>
-    `;
-  }
+            </div>
+            <button
+              class="secondary"
+              style="font-size: 12px; padding: 6px 12px;"
+              @click=${() => {
+                this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
+              }}
+            >
+              ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
+            </button>
+          </div>
+    
+          ${this.isDetailCodeExpanded
+            ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
+            : null}
+        </div>
+      `;
+    }
 
   private populateCanvas(canvas: any, prompt: any): void {
     if (!prompt) return;
@@ -1177,9 +1204,10 @@ export class AdCatalogView extends LitElement {
   }
 
   private onTogglePlantuml(versionId: number): void {
-    this.expandedVersionId =
-      this.expandedVersionId === versionId ? null : versionId;
-  }
+      this.expandedVersionId =
+        this.expandedVersionId === versionId ? null : versionId;
+      this.isDetailCodeExpanded = false; // ADD THIS — reset on every open/close
+    }
 
   // ===== HANDLERS: DELETE / PUBLISH =====
 
