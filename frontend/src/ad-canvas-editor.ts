@@ -106,6 +106,13 @@ interface DividerTrackedNode {
   ratio: number;
 }
 
+interface ExplicitEdge {
+  id: string;
+  fromId: string;
+  toId: string;
+  portType: string;
+}
+
 interface DividerDragState {
   kind: 'divider';
   dividerIndex: number;
@@ -613,56 +620,72 @@ export class AdCanvasEditor extends LitElement {
   }
 
   public getFullState(): Record<string, unknown> {
-    return {
-      actors: [...this.actors],
-      nodes: this.nodes.map((n) => ({ ...n })),
-      laneWidths: [...this.laneWidths],
-      startOffset: { ...this.startOffset },
-      finalOffset: { ...this.finalOffset },
-      mergeOffsets: { ...this.mergeOffsets },
-    };
-  }
+      return {
+        actors: [...this.actors],
+        nodes: this.nodes.map((n) => ({ ...n })),
+        laneWidths: [...this.laneWidths],
+        startOffset: { ...this.startOffset },
+        finalOffset: { ...this.finalOffset },
+        mergeOffsets: Object.fromEntries(
+          Object.entries(this.mergeOffsets).map(([k, v]) => [k, { ...v }])
+        ),
+        explicitEdges: this.explicitEdges.map((e) => ({ ...e })),
+        deletedEdgeIds: [...this.deletedEdgeIds],
+        deletedMergeIds: [...this.deletedMergeIds],
+      };
+    }
 
   public setFullState(state: Record<string, unknown> | null): void {
-    if (!state) {
-      this.setStructure(null);
-      return;
+      if (!state) return;
+
+      if (Array.isArray(state.actors)) {
+        this.actors = state.actors as string[];
+      }
+      if (Array.isArray(state.nodes)) {
+        this.nodes = state.nodes as CanvasNode[];
+      }
+      if (Array.isArray(state.laneWidths) && state.laneWidths.length > 0) {
+        this.laneWidths = state.laneWidths as number[];
+      } else {
+        this.syncLaneWidths(this.actors.length);
+      }
+      if (state.startOffset && typeof state.startOffset === 'object') {
+        this.startOffset = state.startOffset as Point;
+      } else {
+        this.startOffset = { x: 0, y: 0 };
+      }
+      if (state.finalOffset && typeof state.finalOffset === 'object') {
+        this.finalOffset = state.finalOffset as Point;
+      } else {
+        this.finalOffset = { x: 0, y: 0 };
+      }
+      if (state.mergeOffsets && typeof state.mergeOffsets === 'object' && !Array.isArray(state.mergeOffsets)) {
+        this.mergeOffsets = state.mergeOffsets as Record<string, Point>;
+      } else {
+        this.mergeOffsets = {};
+      }
+      if (Array.isArray(state.explicitEdges)) {
+        this.explicitEdges = state.explicitEdges as ExplicitEdge[];
+      } else {
+        this.explicitEdges = [];
+      }
+      if (Array.isArray(state.deletedEdgeIds)) {
+        this.deletedEdgeIds = state.deletedEdgeIds as string[];
+      } else {
+        this.deletedEdgeIds = [];
+      }
+      if (Array.isArray(state.deletedMergeIds)) {
+        this.deletedMergeIds = state.deletedMergeIds as string[];
+      } else {
+        this.deletedMergeIds = [];
+      }
+
+      // Reset transient UI state
+      this.selectedNodeId = null;
+      this.selectedEdge = null;
+      this.hoveredNodeId = null;
+      this.dragState = null;
     }
-
-    const actors = Array.isArray(state.actors)
-      ? (state.actors as string[])
-      : [];
-    this.actors = actors.length ? actors : ['Actor'];
-    this.syncLaneWidths(this.actors.length);
-
-    if (
-      Array.isArray(state.laneWidths) &&
-      (state.laneWidths as number[]).length === this.actors.length
-    ) {
-      this.laneWidths = [...(state.laneWidths as number[])];
-    }
-
-    this.nodes = Array.isArray(state.nodes)
-      ? (state.nodes as CanvasNode[]).map((n) => ({ ...n }))
-      : [];
-
-    this.startOffset =
-      state.startOffset && typeof state.startOffset === 'object'
-        ? { ...(state.startOffset as Point) }
-        : { x: 0, y: 0 };
-
-    this.finalOffset =
-      state.finalOffset && typeof state.finalOffset === 'object'
-        ? { ...(state.finalOffset as Point) }
-        : { x: 0, y: 0 };
-
-    this.mergeOffsets =
-      state.mergeOffsets && typeof state.mergeOffsets === 'object'
-        ? { ...(state.mergeOffsets as Record<string, Point>) }
-        : {};
-
-    this.emitStructureChange();
-  }
 
   private emitStructureChange(): void {
     this.isInternalChange = true;
