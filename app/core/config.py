@@ -6,8 +6,8 @@ settings to keep things straightforward and explicit.
 """
 
 import os
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 
 from dotenv import load_dotenv
 
@@ -27,10 +27,22 @@ class LLMSettings:
 
 
 @dataclass
+class AuthSettings:
+    """Hardcoded credentials for the academic test accounts."""
+
+    allowed_emails: List[str]
+    password: str
+
+    def is_valid(self, email: str, password: str) -> bool:
+        return email in self.allowed_emails and password == self.password
+
+
+@dataclass
 class Settings:
     """Global application settings."""
 
     llm: LLMSettings
+    auth: AuthSettings
     database_url: str
     plantuml_server_url: str
 
@@ -81,6 +93,17 @@ def get_settings() -> Settings:
         temperature=temperature,
     )
 
+    # --- Auth configuration (academic test accounts, STU Bratislava faculties) ---
+    auth_settings = AuthSettings(
+        allowed_emails=[
+            "xfiit@stuba.sk",
+            "xfei@stuba.sk",
+            "xsvf@stuba.sk",
+            "xsjf@stuba.sk",
+        ],
+        password="pass123",
+    )
+
     # --- Database configuration ---
     database_url = os.getenv("DATABASE_URL", "sqlite:///./app.db").strip()
 
@@ -92,6 +115,7 @@ def get_settings() -> Settings:
 
     return Settings(
         llm=llm_settings,
+        auth=auth_settings,
         database_url=database_url,
         plantuml_server_url=plantuml_server_url,
     )
