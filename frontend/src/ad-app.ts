@@ -491,9 +491,9 @@ export class AdApp extends LitElement {
     }
   `;
 
-  // Persist login across refreshes — read from localStorage on init
+  // Persist login across refreshes — read from sessionStorage on init
   @state() private userEmail: string =
-    localStorage.getItem('ad_user_email') ?? '';
+    sessionStorage.getItem('ad_user_email') ?? '';
 
   @state() private view: View = 'generate';
 
@@ -911,12 +911,12 @@ export class AdApp extends LitElement {
 
   private onLoginSuccess(e: CustomEvent): void {
     this.userEmail = (e.detail as { email: string }).email;
-    localStorage.setItem('ad_user_email', this.userEmail);
+    sessionStorage.setItem('ad_user_email', this.userEmail);
     this.loadProcesses();
   }
 
   private onLogoutClick(): void {
-    localStorage.removeItem('ad_user_email');
+    sessionStorage.removeItem('ad_user_email');
     this.userEmail = '';
     this.view = 'generate';
     this.processes = [];

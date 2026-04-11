@@ -13,6 +13,7 @@ interface CatalogVersion {
   process_id: number;
   version_number: number;
   version_name: string;
+  version_description: string | null;
   created_at: string;
   llm_model: string;
   tokens_used: number | null;
@@ -891,7 +892,14 @@ export class AdCatalogView extends LitElement {
 
     return html`
       <tr>
-        <td>${v.version_name || '—'}</td>
+        <td>
+          <div>${v.version_name || '—'}</div>
+          ${v.version_description
+            ? html`<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">
+                ${v.version_description}
+              </div>`
+            : null}
+        </td>
         <td>
           <span class="version-status ${statusClass}">${v.status}</span>
         </td>
@@ -1093,21 +1101,22 @@ export class AdCatalogView extends LitElement {
               autocomplete="off"
             />
           </div>
+
           <!-- Version description — above Process description -->
           <div>
-              <label for="editVersionDescription">
-                ${this.editMode === 'update'
-                  ? 'Updated Draft Version Description'
-                  : 'New Version Description'}
-                <span style="font-size: 11px; font-weight: 400; color: #4b5563; margin-left: 5px;">optional</span>
-              </label>
-              <textarea
-                id="editVersionDescription"
-                .value=${this.editVersionDescription}
-                @input=${this.onEditVersionDescriptionChange}
-                placeholder="Notes about this version — e.g. what changed, assumptions, limitations."
-                style="min-height: 80px;"
-              ></textarea>
+            <label for="editVersionDescription">
+              ${this.editMode === 'update'
+                ? 'Updated Draft Version Description'
+                : 'New Version Description'}
+              <span style="font-size: 11px; font-weight: 400; color: #4b5563; margin-left: 5px;">optional</span>
+            </label>
+            <textarea
+              id="editVersionDescription"
+              .value=${this.editVersionDescription}
+              @input=${this.onEditVersionDescriptionChange}
+              placeholder="Notes about this version — e.g. what changed, assumptions, limitations."
+              style="min-height: 80px;"
+            ></textarea>
           </div>
 
           <div>
@@ -1416,8 +1425,9 @@ export class AdCatalogView extends LitElement {
     this.editProcessName = this.processDetail?.process_name ?? '';
     this.editVersionNumber = v.version_number;
     this.editVersionLabel = v.version_name;
+    // Pre-fill version description from existing version
+    this.editVersionDescription = v.version_description ?? '';
     this.editDescriptionOriginal = '';
-    this.editVersionDescription = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = v.plantuml_code;
     this.editPromptJson = v.prompt ?? null;
@@ -1636,6 +1646,8 @@ export class AdCatalogView extends LitElement {
       plantuml_code: code,
       prompt: this.editPromptJson ?? {},
       canvas_state: canvasState,
+      // Include version description in every save/update request
+      version_description: this.editVersionDescription.trim() || null,
     };
 
     try {
@@ -1660,6 +1672,8 @@ export class AdCatalogView extends LitElement {
       this.editGeneratedPlantuml = version.plantuml_code;
       this.editVersionNumber = version.version_number;
       this.editVersionLabel = version.version_name;
+      // Sync description back from saved version
+      this.editVersionDescription = version.version_description ?? '';
       this.editPromptJson = version.prompt ?? null;
       this.editPromptText =
         version.prompt != null ? JSON.stringify(version.prompt, null, 2) : '';

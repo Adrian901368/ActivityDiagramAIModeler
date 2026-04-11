@@ -498,16 +498,6 @@ async def generate_activity_diagram_from_text(
     ),
     tags=["catalog"],
 )
-@router.post(
-    "/catalog/save-from-structure",
-    response_model=CatalogVersion,
-    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-    summary=(
-        "Generate PlantUML from structured JSON and save as a new draft version "
-        "(intended for visual editor)"
-    ),
-    tags=["catalog"],
-)
 async def save_version_from_structure(
     process_name: str = Query(
         ...,
@@ -625,6 +615,7 @@ async def save_version_from_structure(
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
+            version_description=None,
             image_path=image_path,
             canvas_state=None,
             process_description=process_description,
@@ -641,6 +632,7 @@ async def save_version_from_structure(
         process_id=version.process_id,
         version_number=version.version_number,
         version_name=version.version_name or "",
+        version_description=version.version_description,
         created_at=version.created_at,
         llm_model=version.llm_model,
         tokens_used=version.tokens_used,
@@ -707,7 +699,6 @@ async def save_generated_version(
             detail="plantuml_code must not be empty.",
         )
 
-    # Basic sanity check to avoid saving obviously broken diagrams
     if "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
         raise HTTPException(
             status_code=400,
@@ -739,6 +730,7 @@ async def save_generated_version(
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
+            version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
             process_description=process_description,
@@ -755,6 +747,7 @@ async def save_generated_version(
         process_id=version.process_id,
         version_number=version.version_number,
         version_name=version.version_name or "",
+        version_description=version.version_description,
         created_at=version.created_at,
         llm_model=version.llm_model,
         tokens_used=version.tokens_used,
@@ -852,6 +845,7 @@ async def get_process_catalog(
             process_id=v.process_id,
             version_number=v.version_number,
             version_name=v.version_name or "",
+            version_description=v.version_description,
             created_at=v.created_at,
             llm_model=v.llm_model,
             tokens_used=v.tokens_used,
@@ -938,6 +932,7 @@ async def create_process_version(
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
+            version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
         )
@@ -954,6 +949,7 @@ async def create_process_version(
         process_id=version.process_id,
         version_number=version.version_number,
         version_name=version.version_name or "",
+        version_description=version.version_description,
         created_at=version.created_at,
         llm_model=version.llm_model,
         tokens_used=version.tokens_used,
@@ -1034,6 +1030,7 @@ async def update_draft_process_version(
             owner_email=owner_email,
             prompt_dict=payload.prompt or {},
             version_name=new_version_name,
+            version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
         )
@@ -1056,6 +1053,7 @@ async def update_draft_process_version(
         process_id=updated.process_id,
         version_number=updated.version_number,
         version_name=updated.version_name or "",
+        version_description=updated.version_description,
         created_at=updated.created_at,
         llm_model=updated.llm_model,
         tokens_used=updated.tokens_used,
@@ -1141,7 +1139,6 @@ async def clear_catalog(
     authenticated user. Does NOT affect other users' data.
     """
     try:
-        # Collect process IDs owned by this user
         process_ids = [
             row.id
             for row in db.query(Process.id)
@@ -1207,7 +1204,8 @@ async def publish_process_version(
         id=version.id,
         process_id=version.process_id,
         version_number=version.version_number,
-        version_name=(version.version_name or ""),
+        version_name=version.version_name or "",
+        version_description=version.version_description,
         created_at=version.created_at,
         llm_model=version.llm_model,
         tokens_used=version.tokens_used,
