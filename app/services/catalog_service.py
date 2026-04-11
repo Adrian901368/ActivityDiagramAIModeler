@@ -11,14 +11,13 @@ from app.database.models import Process, Version
 def get_or_create_process(
     db: Session,
     name: str,
-    owner_email: str,
     domain: str | None = None,
+    description: str | None = None,
+    owner_email: str | None = None,
 ) -> Process:
     """
     Find existing Process by (name, domain, owner_email) or create a new one.
-
-    Each user has their own process namespace — two users can have
-    processes with the same name without conflict.
+    If process already exists and description was empty, update it.
     """
     process = (
         db.query(Process)
@@ -31,9 +30,18 @@ def get_or_create_process(
     )
 
     if process is None:
-        process = Process(name=name, domain=domain, owner_email=owner_email)
+        process = Process(
+            name=name,
+            domain=domain,
+            description=description,
+            owner_email=owner_email,
+        )
         db.add(process)
-        db.flush()  # ensure process.id is available
+        db.flush()
+    elif description and not process.description:
+        # Fill in description if it was previously empty
+        process.description = description
+        db.flush()
 
     return process
 
@@ -45,23 +53,24 @@ def save_process_version(
     prompt_dict: dict,
     plantuml_code: str,
     llm_model: str,
-    owner_email: str,
     tokens_used: int | None = None,
     version_name: str | None = None,
+    owner_email: str | None = None,
     image_path: str | None = None,
     canvas_state: Dict[str, Any] | None = None,
+    process_description: str | None = None,
 ) -> Version:
     """
     Find or create Process by (name, domain, owner_email) and save a new Version.
-
     If version_name is not provided, it is generated automatically
     as 'vX' where X is the new version_number.
     """
-    # 1) find or create process scoped to this user
+    # 1) find or create process — pass description and owner so they get stored
     process = get_or_create_process(
         db=db,
         name=process_name,
         domain=domain,
+        description=process_description,
         owner_email=owner_email,
     )
 
@@ -84,6 +93,7 @@ def save_process_version(
         process_id=process.id,
         version_number=new_number,
         version_name=version_name,
+        owner_email=owner_email,
         plantuml_code=plantuml_code,
         prompt=prompt_dict,
         llm_model=llm_model,
@@ -207,6 +217,7 @@ def create_new_version_for_process(
         process_id=process_id,
         version_number=next_version_number,
         version_name=version_name,
+        owner_email=owner_email,
         plantuml_code=plantuml_code,
         prompt=prompt_dict or {},
         llm_model=llm_model or "",
@@ -298,13 +309,13 @@ def publish_version(
     if version.status == "active":
         raise ValueError("Version is already active and cannot be re-published.")
 
-    # archive all other versions of the same process
+    # Archive all other versions of the same process
     db.query(Version).filter(
         Version.process_id == process_id,
         Version.version_number != version_number,
     ).update({"status": "archived"}, synchronize_session=False)
 
-    # set selected version to active
+    # Set selected version to active
     version.status = "active"
     db.commit()
     db.refresh(version)

@@ -498,6 +498,16 @@ async def generate_activity_diagram_from_text(
     ),
     tags=["catalog"],
 )
+@router.post(
+    "/catalog/save-from-structure",
+    response_model=CatalogVersion,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    summary=(
+        "Generate PlantUML from structured JSON and save as a new draft version "
+        "(intended for visual editor)"
+    ),
+    tags=["catalog"],
+)
 async def save_version_from_structure(
     process_name: str = Query(
         ...,
@@ -514,12 +524,20 @@ async def save_version_from_structure(
         description="Optional human-readable label for this version (e.g. v1, editor-draft-1)",
         examples={"example": {"value": "v1 - edited draft"}},
     ),
+    process_description: Optional[str] = Query(
+        default=None,
+        description="Optional human-readable description of the process, stored in Process.description",
+    ),
+    x_user_email: Optional[str] = Header(
+        default=None,
+        alias="X-User-Email",
+        description="Email of the logged-in user (owner of the version)",
+    ),
     payload: ProcessStructureInput = Body(
         ...,
         description="Canonical JSON structure of the process (from visual editor)",
     ),
     db: Session = Depends(get_db),
-    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Full pipeline for visual editor:
@@ -528,11 +546,8 @@ async def save_version_from_structure(
     2) Generates PlantUML via LLM using the same system prompt as /generate.
     3) Validates PlantUML with PlantUML server.
     4) Renders PNG via PlantUML server and stores its path.
-    5) Saves a new draft Version in the catalog under the authenticated user.
-
-    This endpoint is intended to be called when the user clicks 'Save' in the
-    interactive visual editor. It returns the saved version including PlantUML
-    code so the frontend can show both the text and rendered diagram.
+    5) Optionally stores process_description in Process.description.
+    6) Saves a new draft Version in the catalog (tagged with owner_email).
     """
     system_prompt = build_activity_diagram_system_prompt()
 
@@ -608,11 +623,12 @@ async def save_version_from_structure(
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
-            owner_email=owner_email,
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
             canvas_state=None,
+            process_description=process_description,
+            owner_email=x_user_email,
         )
     except Exception as exc:
         raise HTTPException(
@@ -659,17 +675,26 @@ async def save_generated_version(
         description="Optional human-readable label for this version (e.g. v1, draft-1)",
         examples={"example": {"value": "v1 - initial draft"}},
     ),
+    process_description: Optional[str] = Query(
+        default=None,
+        description="Optional human-readable description of the process, stored in Process.description",
+    ),
+    x_user_email: Optional[str] = Header(
+        default=None,
+        alias="X-User-Email",
+        description="Email of the logged-in user (owner of the version)",
+    ),
     payload: NewVersionInput = Body(
         ...,
         description="PlantUML code (and optional prompt + canvas_state) to be saved",
     ),
     db: Session = Depends(get_db),
-    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Save a generated PlantUML diagram as a new draft Version in the catalog.
 
-    - Finds or creates Process by (process_name, domain, owner_email).
+    - Finds or creates Process by (process_name, domain).
+    - Optionally stores process_description in Process.description.
     - Validates PlantUML.
     - Renders PNG via PlantUML server and stores its path.
     - Creates a new Version row with auto-incremented version_number.
@@ -712,11 +737,12 @@ async def save_generated_version(
             prompt_dict=payload.prompt,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
-            owner_email=owner_email,
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
             canvas_state=payload.canvas_state,
+            process_description=process_description,
+            owner_email=x_user_email,
         )
     except Exception as exc:
         raise HTTPException(

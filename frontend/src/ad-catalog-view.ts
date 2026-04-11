@@ -535,6 +535,7 @@ export class AdCatalogView extends LitElement {
   @state() private editProcessName = '';
   @state() private editVersionNumber: number | null = null;
   @state() private editVersionLabel = '';
+  @state() private editVersionDescription = '';
   @state() private editDescriptionOriginal = '';
   @state() private editDescriptionCurrent = '';
   @state() private editGeneratedPlantuml = '';
@@ -861,7 +862,7 @@ export class AdCatalogView extends LitElement {
             <table>
               <thead>
                 <tr>
-                  <th>Version name</th>
+                  <th>Version Name</th>
                   <th>Status</th>
                   <th>Created</th>
                   <th>Actions</th>
@@ -1082,7 +1083,7 @@ export class AdCatalogView extends LitElement {
           </div>
 
           <div style="margin-bottom: 8px;">
-            <label for="editVersionLabel">Version name (optional)</label>
+            <label for="editVersionLabel">Version Name</label>
             <input
               id="editVersionLabel"
               type="text"
@@ -1092,9 +1093,25 @@ export class AdCatalogView extends LitElement {
               autocomplete="off"
             />
           </div>
+          <!-- Version description — above Process description -->
+          <div>
+              <label for="editVersionDescription">
+                ${this.editMode === 'update'
+                  ? 'Updated Draft Version Description'
+                  : 'New Version Description'}
+                <span style="font-size: 11px; font-weight: 400; color: #4b5563; margin-left: 5px;">optional</span>
+              </label>
+              <textarea
+                id="editVersionDescription"
+                .value=${this.editVersionDescription}
+                @input=${this.onEditVersionDescriptionChange}
+                placeholder="Notes about this version — e.g. what changed, assumptions, limitations."
+                style="min-height: 80px;"
+              ></textarea>
+          </div>
 
           <div>
-            <label for="editDescription">Process description</label>
+            <label for="editDescription">Text Prompt</label>
             <textarea
               id="editDescription"
               .value=${this.editDescriptionCurrent}
@@ -1378,6 +1395,7 @@ export class AdCatalogView extends LitElement {
     this.editProcessName = this.processDetail.process_name;
     this.editVersionNumber = null;
     this.editVersionLabel = '';
+    this.editVersionDescription = '';
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = base ? base.plantuml_code : '';
@@ -1399,6 +1417,7 @@ export class AdCatalogView extends LitElement {
     this.editVersionNumber = v.version_number;
     this.editVersionLabel = v.version_name;
     this.editDescriptionOriginal = '';
+    this.editVersionDescription = '';
     this.editDescriptionCurrent = '';
     this.editGeneratedPlantuml = v.plantuml_code;
     this.editPromptJson = v.prompt ?? null;
@@ -1414,6 +1433,7 @@ export class AdCatalogView extends LitElement {
     this.subView = 'list';
     this.editMode = null;
     this.editError = '';
+    this.editVersionDescription = '';
     this.isGenerating = false;
     this.editPromptJson = null;
     this.editPromptText = '';
@@ -1491,6 +1511,10 @@ export class AdCatalogView extends LitElement {
   private onRevertEditClick(): void {
     this.editDescriptionCurrent = this.editDescriptionOriginal;
     this.editError = '';
+  }
+
+  private onEditVersionDescriptionChange(event: Event): void {
+    this.editVersionDescription = (event.target as HTMLTextAreaElement).value;
   }
 
   // Generate only (preview) — uses /generate-from-text, does NOT save, no auth needed
