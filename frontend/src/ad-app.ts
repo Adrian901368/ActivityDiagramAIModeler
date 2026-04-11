@@ -196,6 +196,11 @@ export class AdApp extends LitElement {
       gap: 12px;
     }
 
+    /* Description textareas are shorter than the main text prompt */
+    .descriptions-grid textarea {
+      min-height: 80px;
+    }
+
     @media (max-width: 900px) {
       .descriptions-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -634,7 +639,7 @@ export class AdApp extends LitElement {
               <!-- Row 1: process name / domain / version label -->
               <div class="meta-grid">
                 <div>
-                  <label for="processName">Process name</label>
+                  <label for="processName">Process Name</label>
                   <input
                     id="processName"
                     type="text"
@@ -656,7 +661,7 @@ export class AdApp extends LitElement {
                   />
                 </div>
                 <div>
-                  <label for="versionName">Version label</label>
+                  <label for="versionName">Version Label</label>
                   <input
                     id="versionName"
                     type="text"
@@ -679,26 +684,26 @@ export class AdApp extends LitElement {
                     id="processDescription"
                     .value=${this.processDescription}
                     @input=${this.onProcessDescriptionChange}
-                    placeholder="Brief description of what this process represents. Saved to the catalog alongside the process name."
+                    placeholder="Brief description of process."
                   ></textarea>
                 </div>
                 <div>
                   <label for="initialVersionDescription">
-                    Initial version description
+                    Initial Version Description
                     <span class="label-optional">optional</span>
                   </label>
                   <textarea
                     id="initialVersionDescription"
                     .value=${this.initialVersionDescription}
                     @input=${this.onInitialVersionDescriptionChange}
-                    placeholder="Notes about this specific version — e.g. assumptions made, known limitations or planned next steps."
+                    placeholder="Notes about this specific version."
                   ></textarea>
                 </div>
               </div>
 
               <!-- Row 3: text prompt -->
               <div>
-                <label for="processText">Text prompt</label>
+                <label for="processText">Text Prompt</label>
                 <textarea
                   id="processText"
                   .value=${this.processText}
@@ -894,7 +899,7 @@ export class AdApp extends LitElement {
       </ul>
       <div class="catalog-actions">
         <button class="secondary full-width" @click=${this.onEnterCatalogClick}>
-          Enter catalog
+          Enter Catalog
         </button>
       </div>
     `;

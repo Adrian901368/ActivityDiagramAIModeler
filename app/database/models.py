@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     JSON,
+    UniqueConstraint,
 )
 
 from sqlalchemy.orm import declarative_base, relationship
@@ -26,18 +27,25 @@ class Process(Base):
     - name VARCHAR(255) NOT NULL
     - domain VARCHAR(100) NULL
     - description TEXT NULL
-    - owner_email VARCHAR(100) NOT NULL (ties process to a specific user account)
+    - owner_email VARCHAR(255) NOT NULL (ties process to a specific user account)
 
-    NOTE: name is no longer globally unique — uniqueness is scoped per owner_email.
+    NOTE: name is no longer globally unique — uniqueness is scoped per
+    (name, domain, owner_email) so different users can have same-named processes.
     """
 
     __tablename__ = "processes"
+    __table_args__ = (
+        UniqueConstraint(
+            "name", "domain", "owner_email",
+            name="uq_process_name_domain_owner",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     domain = Column(String(100), nullable=True)
-    description = Column(Text, nullable=True)
-    owner_email = Column(String(100), nullable=False, index=True)
+    description = Column(Text, nullable=True, default=None)
+    owner_email = Column(String(255), nullable=False, index=True)
 
     versions = relationship(
         "Version",
@@ -57,6 +65,7 @@ class Version(Base):
     - process_id INTEGER NOT NULL (FK -> processes.id)
     - version_number INTEGER NOT NULL
     - version_name VARCHAR NULL / "" (human-readable version label)
+    - owner_email VARCHAR(255) NULL (denormalized for quick per-user queries)
     - plantuml_code TEXT NOT NULL
     - prompt JSON NOT NULL (structured input / metadata)
     - llm_model VARCHAR(100) NOT NULL
@@ -74,6 +83,9 @@ class Version(Base):
 
     version_number = Column(Integer, nullable=False)
     version_name = Column(String, nullable=False, default="")
+
+    # Denormalized from Process.owner_email for convenient per-user filtering.
+    owner_email = Column(String(255), nullable=True, index=True)
 
     plantuml_code = Column(Text, nullable=False)
     prompt = Column(JSON, nullable=False)
