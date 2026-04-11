@@ -23,17 +23,21 @@ class Process(Base):
     Table `processes` (SQLite):
 
     - id INTEGER PRIMARY KEY
-    - name VARCHAR(255) UNIQUE NOT NULL
+    - name VARCHAR(255) NOT NULL
     - domain VARCHAR(100) NULL
     - description TEXT NULL
+    - owner_email VARCHAR(100) NOT NULL (ties process to a specific user account)
+
+    NOTE: name is no longer globally unique — uniqueness is scoped per owner_email.
     """
 
     __tablename__ = "processes"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False, index=True)
     domain = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
+    owner_email = Column(String(100), nullable=False, index=True)
 
     versions = relationship(
         "Version",

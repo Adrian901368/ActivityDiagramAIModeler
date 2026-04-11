@@ -11,22 +11,27 @@ from app.database.models import Process, Version
 def get_or_create_process(
     db: Session,
     name: str,
+    owner_email: str,
     domain: str | None = None,
 ) -> Process:
     """
-    Find existing Process by (name, domain) or create a new one.
+    Find existing Process by (name, domain, owner_email) or create a new one.
 
-    This helper is useful for generation endpoints, where we want
-    to reuse a process if it already exists in the catalog.
+    Each user has their own process namespace — two users can have
+    processes with the same name without conflict.
     """
     process = (
         db.query(Process)
-        .filter(Process.name == name, Process.domain == domain)
+        .filter(
+            Process.name == name,
+            Process.domain == domain,
+            Process.owner_email == owner_email,
+        )
         .first()
     )
 
     if process is None:
-        process = Process(name=name, domain=domain)
+        process = Process(name=name, domain=domain, owner_email=owner_email)
         db.add(process)
         db.flush()  # ensure process.id is available
 
@@ -40,19 +45,25 @@ def save_process_version(
     prompt_dict: dict,
     plantuml_code: str,
     llm_model: str,
+    owner_email: str,
     tokens_used: int | None = None,
     version_name: str | None = None,
     image_path: str | None = None,
     canvas_state: Dict[str, Any] | None = None,
 ) -> Version:
     """
-    Find or create Process by (name, domain) and save a new Version.
+    Find or create Process by (name, domain, owner_email) and save a new Version.
 
     If version_name is not provided, it is generated automatically
     as 'vX' where X is the new version_number.
     """
-    # 1) find or create process
-    process = get_or_create_process(db=db, name=process_name, domain=domain)
+    # 1) find or create process scoped to this user
+    process = get_or_create_process(
+        db=db,
+        name=process_name,
+        domain=domain,
+        owner_email=owner_email,
+    )
 
     # 2) find latest version_number for this process
     latest_number = (
@@ -91,12 +102,13 @@ def save_process_version(
 
 def get_all_processes(
     db: Session,
+    owner_email: str,
     name: str | None = None,
     domain: str | None = None,
 ) -> list[ProcessInCatalog]:
     """
-    List processes with optional filtering by name/domain and
-    aggregated versions_count.
+    List processes for a specific user (owner_email) with optional
+    filtering by name/domain and aggregated versions_count.
     """
     query = (
         db.query(
@@ -107,6 +119,7 @@ def get_all_processes(
         )
         .outerjoin(Version, Version.process_id == Process.id)
         .group_by(Process.id, Process.name, Process.domain)
+        .filter(Process.owner_email == owner_email)
     )
 
     if name:
@@ -127,13 +140,22 @@ def get_all_processes(
     ]
 
 
-def delete_process_with_versions(db: Session, process_id: int) -> bool:
+def delete_process_with_versions(
+    db: Session,
+    process_id: int,
+    owner_email: str,
+) -> bool:
     """
     Delete a process and all its versions.
 
-    Returns True if something was deleted, False if process does not exist.
+    Returns True if something was deleted, False if process does not exist
+    or does not belong to owner_email.
     """
-    process = db.query(Process).filter(Process.id == process_id).first()
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
     if process is None:
         return False
 
@@ -148,6 +170,7 @@ def create_new_version_for_process(
     db: Session,
     process_id: int,
     plantuml_code: str,
+    owner_email: str,
     prompt_dict: dict | None,
     llm_model: str | None,
     tokens_used: int | None = None,
@@ -158,13 +181,17 @@ def create_new_version_for_process(
     """
     Create a new Version row for an existing process.
 
+    Verifies that the process belongs to owner_email before proceeding.
     version_number is auto-incremented (max + 1).
     """
-    process = db.query(Process).filter(Process.id == process_id).first()
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
     if process is None:
         raise ValueError(f"Process with id {process_id} not found")
 
-    # find last version number for this process
     last_version = (
         db.query(Version)
         .filter(Version.process_id == process_id)
@@ -172,7 +199,9 @@ def create_new_version_for_process(
         .first()
     )
 
-    next_version_number = 1 if last_version is None else last_version.version_number + 1
+    next_version_number = (
+        1 if last_version is None else last_version.version_number + 1
+    )
 
     new_version = Version(
         process_id=process_id,
@@ -198,12 +227,22 @@ def delete_version_for_process(
     db: Session,
     process_id: int,
     version_number: int,
+    owner_email: str,
 ) -> bool:
     """
     Delete a single version identified by (process_id, version_number).
 
+    Verifies process ownership before deleting.
     Returns True if the version was found and deleted, False otherwise.
     """
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
+    if process is None:
+        return False
+
     version = (
         db.query(Version)
         .filter(
@@ -226,14 +265,24 @@ def publish_version(
     db: Session,
     process_id: int,
     version_number: int,
+    owner_email: str,
 ) -> Version | None:
     """
     Set given version (process_id, version_number) as ACTIVE and
     archive all other versions of that process.
 
+    Verifies process ownership before publishing.
     - No version -> None
     - If already ACTIVE -> ValueError
     """
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
+    if process is None:
+        return None
+
     version = (
         db.query(Version)
         .filter(
@@ -268,6 +317,7 @@ def update_draft_version(
     process_id: int,
     version_number: int,
     plantuml_code: str,
+    owner_email: str,
     prompt_dict: dict | None,
     version_name: str = "",
     image_path: str | None = None,
@@ -277,9 +327,18 @@ def update_draft_version(
     Update PlantUML (and optional prompt + version_name + image_path + canvas_state)
     for a version in 'draft' status.
 
+    Verifies process ownership before updating.
     - No version -> returns None.
     - Status != 'draft' -> raises ValueError.
     """
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
+    if process is None:
+        return None
+
     version = (
         db.query(Version)
         .filter(

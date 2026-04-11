@@ -5,6 +5,7 @@ from fastapi import (
     APIRouter,
     HTTPException,
     Depends,
+    Header,
     status,
     Response,
     Query,
@@ -43,10 +44,33 @@ from app.core.schemas import (
     CatalogVersion,
     ProcessInCatalog,
     NewVersionInput,
+    LoginRequest,
+    LoginResponse,
 )
 
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# Auth dependency
+# ---------------------------------------------------------------------------
+
+def get_current_user(x_user_email: str = Header(..., alias="X-User-Email")) -> str:
+    """
+    Reads X-User-Email header and validates it against the allowed accounts list.
+    Raises 401 if the header is missing or the email is not in the allowed list.
+    """
+    if x_user_email not in settings.auth.allowed_emails:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: unknown user email.",
+        )
+    return x_user_email
+
+
+# ---------------------------------------------------------------------------
+# Input models
+# ---------------------------------------------------------------------------
 
 class TextGenerateInput(BaseModel):
     """Simple text description input for text-based generation endpoints."""
@@ -152,6 +176,36 @@ def _build_process_structure_from_structured_dict(
         parallel_blocks=parallel_blocks,
     )
 
+
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/auth/login",
+    response_model=LoginResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="Log in with email and password",
+    tags=["auth"],
+)
+async def login(payload: LoginRequest = Body(...)) -> LoginResponse:
+    """
+    Validate credentials against the hardcoded list of allowed STU test accounts.
+
+    Returns the authenticated email on success.
+    Raises 401 with 'Invalid credentials' on failure.
+    """
+    if not settings.auth.is_valid(payload.email, payload.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+    return LoginResponse(success=True, email=payload.email)
+
+
+# ---------------------------------------------------------------------------
+# Generation endpoints (no auth required — stateless, no DB writes)
+# ---------------------------------------------------------------------------
 
 @router.post(
     "/generate",
@@ -430,6 +484,10 @@ async def generate_activity_diagram_from_text(
     )
 
 
+# ---------------------------------------------------------------------------
+# Catalog endpoints (all require X-User-Email header)
+# ---------------------------------------------------------------------------
+
 @router.post(
     "/catalog/save-from-structure",
     response_model=CatalogVersion,
@@ -461,6 +519,7 @@ async def save_version_from_structure(
         description="Canonical JSON structure of the process (from visual editor)",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Full pipeline for visual editor:
@@ -469,7 +528,7 @@ async def save_version_from_structure(
     2) Generates PlantUML via LLM using the same system prompt as /generate.
     3) Validates PlantUML with PlantUML server.
     4) Renders PNG via PlantUML server and stores its path.
-    5) Saves a new draft Version in the catalog.
+    5) Saves a new draft Version in the catalog under the authenticated user.
 
     This endpoint is intended to be called when the user clicks 'Save' in the
     interactive visual editor. It returns the saved version including PlantUML
@@ -549,6 +608,7 @@ async def save_version_from_structure(
             prompt_dict=user_content,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
+            owner_email=owner_email,
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
@@ -604,11 +664,12 @@ async def save_generated_version(
         description="PlantUML code (and optional prompt + canvas_state) to be saved",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Save a generated PlantUML diagram as a new draft Version in the catalog.
 
-    - Finds or creates Process by (process_name, domain).
+    - Finds or creates Process by (process_name, domain, owner_email).
     - Validates PlantUML.
     - Renders PNG via PlantUML server and stores its path.
     - Creates a new Version row with auto-incremented version_number.
@@ -651,6 +712,7 @@ async def save_generated_version(
             prompt_dict=payload.prompt,
             plantuml_code=plantuml_code,
             llm_model=settings.llm.model,
+            owner_email=owner_email,
             tokens_used=None,
             version_name=version_name,
             image_path=image_path,
@@ -694,12 +756,18 @@ async def list_processes(
         description="Substring of domain (case-insensitive)",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> List[ProcessInCatalog]:
     """
-    Return a list of all processes in the catalog, optionally filtered by
-    name and/or domain (case-insensitive substring match).
+    Return a list of all processes in the catalog belonging to the authenticated user,
+    optionally filtered by name and/or domain (case-insensitive substring match).
     """
-    return catalog_service.get_all_processes(db, name=name, domain=domain)
+    return catalog_service.get_all_processes(
+        db,
+        owner_email=owner_email,
+        name=name,
+        domain=domain,
+    )
 
 
 @router.get(
@@ -720,12 +788,20 @@ async def get_process_catalog(
         description="Version status filter: draft, active, archived",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogProcessDetail:
     """
     Return catalog information for a single process, including all
     stored versions and their PlantUML code.
+
+    Returns 404 if the process does not exist or does not belong to the
+    authenticated user.
     """
-    process = db.query(Process).filter(Process.id == process_id).first()
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
     if process is None:
         raise HTTPException(
             status_code=404,
@@ -789,20 +865,15 @@ async def create_process_version(
         description="Optional human-friendly name of this version",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Create a new draft version for an existing process using already generated PlantUML.
 
     This endpoint does NOT call the LLM. It assumes that PlantUML was generated
     and inspected before, and only handles validation + saving to the catalog.
+    Verifies that the process belongs to the authenticated user.
     """
-    process = db.query(Process).filter(Process.id == process_id).first()
-    if process is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Process with id {process_id} not found.",
-        )
-
     plantuml_code = (payload.plantuml_code or "").strip()
     if not plantuml_code:
         raise HTTPException(
@@ -836,6 +907,7 @@ async def create_process_version(
             db=db,
             process_id=process_id,
             plantuml_code=plantuml_code,
+            owner_email=owner_email,
             prompt_dict=payload.prompt or {},
             llm_model=settings.llm.model,
             tokens_used=None,
@@ -887,41 +959,15 @@ async def update_draft_process_version(
         description="Optional name of this version (if empty, keeps current name)",
     ),
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Update an existing draft version using already generated (and inspected) PlantUML.
 
     This endpoint does NOT call the LLM. It only validates the provided PlantUML,
     re-renders PNG diagram, and updates the corresponding draft version in the catalog.
+    Verifies that the process belongs to the authenticated user.
     """
-    process = db.query(Process).filter(Process.id == process_id).first()
-    if process is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Process with id {process_id} not found.",
-        )
-
-    version = (
-        db.query(Version)
-        .filter(
-            Version.process_id == process_id,
-            Version.version_number == version_number,
-        )
-        .first()
-    )
-
-    if version is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Version {version_number} for process {process_id} not found.",
-        )
-
-    if version.status != "draft":
-        raise HTTPException(
-            status_code=400,
-            detail="Only draft versions can be modified.",
-        )
-
     plantuml_code = (payload.plantuml_code or "").strip()
     if not plantuml_code:
         raise HTTPException(
@@ -942,8 +988,8 @@ async def update_draft_process_version(
             detail=f"PlantUML validation failed before save: {error_msg}",
         )
 
-    # Keep existing version name if none is provided
-    new_version_name = version_name or (version.version_name or "")
+    # Keep existing version name if none is provided — resolved inside service
+    new_version_name = version_name
 
     try:
         image_path = render_plantuml_to_png(plantuml_code)
@@ -959,6 +1005,7 @@ async def update_draft_process_version(
             process_id=process_id,
             version_number=version_number,
             plantuml_code=plantuml_code,
+            owner_email=owner_email,
             prompt_dict=payload.prompt or {},
             version_name=new_version_name,
             image_path=image_path,
@@ -1004,11 +1051,13 @@ async def update_draft_process_version(
 async def delete_process(
     process_id: int,
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> Response:
     """
     Delete a process from the catalog, including all its stored versions.
+    Only the owner of the process can delete it.
     """
-    deleted = delete_process_with_versions(db, process_id)
+    deleted = delete_process_with_versions(db, process_id, owner_email=owner_email)
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -1029,14 +1078,17 @@ async def delete_process_version(
     process_id: int,
     version_number: int,
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> Response:
     """
     Delete a single version identified by (process_id, version_number).
+    Verifies process ownership before deleting.
     """
     deleted = delete_version_for_process(
         db=db,
         process_id=process_id,
         version_number=version_number,
+        owner_email=owner_email,
     )
 
     if not deleted:
@@ -1051,19 +1103,34 @@ async def delete_process_version(
 @router.delete(
     "/catalog",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete ALL processes and their versions",
+    summary="Delete ALL processes and their versions for the authenticated user",
     tags=["catalog"],
 )
 async def clear_catalog(
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> Response:
     """
-    Hard-delete all processes and all their versions from the catalog.
+    Hard-delete all processes and all their versions belonging to the
+    authenticated user. Does NOT affect other users' data.
     """
     try:
-        db.query(Version).delete()
-        db.query(Process).delete()
-        db.commit()
+        # Collect process IDs owned by this user
+        process_ids = [
+            row.id
+            for row in db.query(Process.id)
+            .filter(Process.owner_email == owner_email)
+            .all()
+        ]
+
+        if process_ids:
+            db.query(Version).filter(
+                Version.process_id.in_(process_ids)
+            ).delete(synchronize_session=False)
+            db.query(Process).filter(
+                Process.id.in_(process_ids)
+            ).delete(synchronize_session=False)
+            db.commit()
     except Exception as exc:
         db.rollback()
         raise HTTPException(
@@ -1088,15 +1155,18 @@ async def publish_process_version(
     process_id: int,
     version_number: int,
     db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Publish a specific version of a process.
+    Verifies that the process belongs to the authenticated user.
     """
     try:
         version = publish_version(
             db=db,
             process_id=process_id,
             version_number=version_number,
+            owner_email=owner_email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

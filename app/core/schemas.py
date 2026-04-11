@@ -245,3 +245,38 @@ class NewVersionInput(BaseModel):
     prompt: dict | None = None
     # Full canvas layout snapshot sent from the frontend on save.
     canvas_state: Optional[Dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# Auth schemas
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    """Credentials submitted from the login form."""
+
+    email: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="User email address (one of the allowed STU test accounts)",
+    )
+    password: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Account password",
+    )
+
+    @field_validator("email", "password")
+    @classmethod
+    def no_empty_strings(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field must not be empty")
+        return v.strip()
+
+
+class LoginResponse(BaseModel):
+    """Returned after a successful login."""
+
+    success: bool = True
+    email: str = Field(..., description="Authenticated user email")

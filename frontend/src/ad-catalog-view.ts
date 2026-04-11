@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 
 interface CatalogProcess {
   id: number;
@@ -19,23 +19,8 @@ interface CatalogVersion {
   status: string;
   plantuml_code: string;
   image_path: string | null;
-  // Structured JSON prompt stored with this version (can be null for old data)
   prompt: Record<string, unknown> | null;
-}
-
-interface CatalogVersion {
-  id: number;
-  process_id: number;
-  version_number: number;
-  version_name: string;
-  created_at: string;
-  llm_model: string;
-  tokens_used: number | null;
-  status: string;
-  plantuml_code: string;
-  image_path: string | null;
-  prompt: Record<string, unknown> | null;
-  canvas_state: Record<string, unknown> | null; // ADD THIS
+  canvas_state: Record<string, unknown> | null;
 }
 
 interface CatalogProcessDetail {
@@ -520,6 +505,10 @@ export class AdCatalogView extends LitElement {
     }
   `;
 
+  // Authenticated user email — set by the parent shell after login.
+  // All catalog fetch() calls include this as X-User-Email header.
+  @property({ type: String }) userEmail = '';
+
   @state() private subView: CatalogSubView = 'list';
 
   @state() private nameFilter = '';
@@ -557,7 +546,15 @@ export class AdCatalogView extends LitElement {
   @state() private isPlantUmlExpanded = false;
   @state() private isDetailCodeExpanded = false;
 
-  protected updated(changedProperties: Map<string, unknown>): void {
+  // ---------------------------------------------------------------------------
+  // Helper: build auth headers for all catalog requests
+  // ---------------------------------------------------------------------------
+
+  private authHeaders(): Record<string, string> {
+    return this.userEmail ? { 'X-User-Email': this.userEmail } : {};
+  }
+
+  protected override updated(changedProperties: Map<string, unknown>): void {
     super.updated(changedProperties);
 
     if (
@@ -589,30 +586,32 @@ export class AdCatalogView extends LitElement {
     this.loadProcesses();
   }
 
+  // ---------------------------------------------------------------------------
+  // Data loading
+  // ---------------------------------------------------------------------------
+
   private async loadProcesses(): Promise<void> {
     this.isLoadingProcesses = true;
     this.processesError = '';
 
     const params = new URLSearchParams();
-    if (this.nameFilter.trim()) {
-      params.append('name', this.nameFilter.trim());
-    }
-    if (this.domainFilter.trim()) {
-      params.append('domain', this.domainFilter.trim());
-    }
+    if (this.nameFilter.trim()) params.append('name', this.nameFilter.trim());
+    if (this.domainFilter.trim()) params.append('domain', this.domainFilter.trim());
 
-    const url =
-      params.toString().length > 0
-        ? `http://localhost:8000/api/v1/catalog/processes?${params.toString()}`
-        : 'http://localhost:8000/api/v1/catalog/processes';
+    const qs = params.toString();
+    const url = qs
+      ? `http://localhost:8000/api/v1/catalog/processes?${qs}`
+      : 'http://localhost:8000/api/v1/catalog/processes';
 
     try {
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      const resp = await fetch(url, {
+        headers: { ...this.authHeaders() },
+      });
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
+
       const data = (await resp.json()) as CatalogProcess[];
       this.processes = [...data].sort((a, b) => b.id - a.id);
+
       if (this.processes.length > 0 && this.selectedProcessId === null) {
         this.onSelectProcess(this.processes[0]);
       } else if (
@@ -639,13 +638,13 @@ export class AdCatalogView extends LitElement {
     this.processDetail = null;
     this.expandedVersionId = null;
 
-    const url = `http://localhost:8000/api/v1/catalog/${processId}`;
-
     try {
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/catalog/${processId}`,
+        { headers: { ...this.authHeaders() } }
+      );
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
+
       const data = (await resp.json()) as CatalogProcessDetail;
       this.processDetail = data;
     } catch (error: unknown) {
@@ -658,6 +657,10 @@ export class AdCatalogView extends LitElement {
       this.isLoadingDetail = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   override render() {
     if (this.subView === 'list') {
@@ -761,18 +764,20 @@ export class AdCatalogView extends LitElement {
     return html`
       <ul class="process-list">
         ${this.processes.map(
-          (p) => html`<li
-            class="process-item ${p.id === this.selectedProcessId
-              ? 'selected'
-              : ''}"
-            @click=${() => this.onSelectProcess(p)}
-          >
-            <div class="process-name">${p.name}</div>
-            <div class="process-meta">
-              ${p.domain ?? 'No domain'} ·
-              ${p.versions_count} version${p.versions_count === 1 ? '' : 's'}
-            </div>
-          </li>`
+          (p) => html`
+            <li
+              class="process-item ${p.id === this.selectedProcessId
+                ? 'selected'
+                : ''}"
+              @click=${() => this.onSelectProcess(p)}
+            >
+              <div class="process-name">${p.name}</div>
+              <div class="process-meta">
+                ${p.domain ?? 'No domain'} ·
+                ${p.versions_count} version${p.versions_count === 1 ? '' : 's'}
+              </div>
+            </li>
+          `
         )}
       </ul>
     `;
@@ -798,9 +803,7 @@ export class AdCatalogView extends LitElement {
   }
 
   private renderProcessHeaderActions() {
-    if (!this.processDetail) {
-      return html``;
-    }
+    if (!this.processDetail) return html``;
     return html`
       <div class="actions-row" style="justify-content: flex-end; margin-top:0">
         <button
@@ -820,6 +823,7 @@ export class AdCatalogView extends LitElement {
       </div>
     `;
   }
+
   private renderProcessDetail() {
     if (this.isLoadingDetail) {
       return html`<div class="placeholder">Loading process detail…</div>`;
@@ -929,86 +933,94 @@ export class AdCatalogView extends LitElement {
   }
 
   private renderExpandedPlantuml() {
-      if (
-        !this.processDetail ||
-        this.expandedVersionId === null ||
-        !this.processDetail.versions.length
-      ) {
-        return null;
-      }
+    if (
+      !this.processDetail ||
+      this.expandedVersionId === null ||
+      !this.processDetail.versions.length
+    ) {
+      return null;
+    }
 
-      const v = this.processDetail.versions.find(
-        (ver) => ver.id === this.expandedVersionId
-      );
-      if (!v) return null;
+    const v = this.processDetail.versions.find(
+      (ver) => ver.id === this.expandedVersionId
+    );
+    if (!v) return null;
 
-      return html`
-        <div style="margin-top: 8px;">
-          <div class="card-subtitle">Visual diagram representation</div>
-    
-          ${v.prompt
-            ? html`
-                <div style="position: relative; overflow: hidden; border-radius: 8px;">
-                  <ad-canvas-editor
-                    data-version-id="${v.id}"
-                    .readOnly=${true}
-                  ></ad-canvas-editor>
-                  <div style="
+    return html`
+      <div style="margin-top: 8px;">
+        <div class="card-subtitle">Visual diagram representation</div>
+
+        ${v.prompt
+          ? html`
+              <div
+                style="position: relative; overflow: hidden; border-radius: 8px;"
+              >
+                <ad-canvas-editor
+                  data-version-id="${v.id}"
+                  .readOnly=${true}
+                ></ad-canvas-editor>
+                <div
+                  style="
                     position: absolute;
                     inset: 0;
                     z-index: 10;
                     cursor: default;
                     pointer-events: none;
-                  "></div>
-                </div>
-              `
-            : html`
-                <div class="placeholder small" style="margin-top: 8px;">
-                  No diagram structure saved for this version.
-                </div>
-              `}
-    
-          <!-- PlantUML code — hidden by default, same pattern as edit view -->
-          <div style="
+                  "
+                ></div>
+              </div>
+            `
+          : html`
+              <div class="placeholder small" style="margin-top: 8px;">
+                No diagram structure saved for this version.
+              </div>
+            `}
+
+        <!-- PlantUML code — hidden by default -->
+        <div
+          style="
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
             margin-top: 16px;
-          ">
-            <div>
-              <div class="card-subtitle">Generated PlantUML</div>
-              <div style="font-size: 11px; color: #6b7280;">
-                Inspect the PlantUML code for this version.
-              </div>
+          "
+        >
+          <div>
+            <div class="card-subtitle">Generated PlantUML</div>
+            <div style="font-size: 11px; color: #6b7280;">
+              Inspect the PlantUML code for this version.
             </div>
-            <button
-              class="secondary"
-              style="font-size: 12px; padding: 6px 12px;"
-              @click=${() => {
-                this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
-              }}
-            >
-              ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
-            </button>
           </div>
-    
-          ${this.isDetailCodeExpanded
-            ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
-            : null}
+          <button
+            class="secondary"
+            style="font-size: 12px; padding: 6px 12px;"
+            @click=${() => {
+              this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
+            }}
+          >
+            ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
+          </button>
         </div>
-      `;
-    }
+
+        ${this.isDetailCodeExpanded
+          ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
+          : null}
+      </div>
+    `;
+  }
 
   private populateCanvas(canvas: any, prompt: any): void {
     if (!prompt) return;
     try {
       const parsed = typeof prompt === 'string' ? JSON.parse(prompt) : prompt;
+
       // If saved from getStructure() directly (nodes/edges format from canvas)
       if (parsed.nodes || parsed.edges) {
         canvas.setStructure(parsed);
         return;
       }
+
       // Fallback: legacy actors/actions format from LLM prompt
       if (Array.isArray(parsed.actors) && Array.isArray(parsed.actions)) {
         canvas.setStructure({
@@ -1035,6 +1047,7 @@ export class AdCatalogView extends LitElement {
   }
 
   // ===== EDIT VIEW =====
+
   private renderEditView() {
     const title =
       this.editMode === 'create' ? 'Create new version' : 'Update draft version';
@@ -1048,7 +1061,7 @@ export class AdCatalogView extends LitElement {
 
     return html`
       <div style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
-        
+
         <!-- CARD 1: DESCRIPTION & INPUTS -->
         <section class="card">
           <div class="edit-header">
@@ -1090,9 +1103,14 @@ export class AdCatalogView extends LitElement {
             ></textarea>
           </div>
 
-          ${this.editError ? html`<div class="error">${this.editError}</div>` : null}
+          ${this.editError
+            ? html`<div class="error">${this.editError}</div>`
+            : null}
 
-          <div class="edit-actions" style="justify-content: flex-start; margin-top: 16px; gap: 12px;">
+          <div
+            class="edit-actions"
+            style="justify-content: flex-start; margin-top: 16px; gap: 12px;"
+          >
             <button
               class="primary"
               @click=${this.onEditGenerateClick}
@@ -1129,8 +1147,12 @@ export class AdCatalogView extends LitElement {
           <div class="card-header">
             <div>
               <div class="card-title">Visual canvas editor (beta)</div>
-              <div class="card-subtitle" style="font-size: 12px; color: #6b7280;">
-                Drag UML activity nodes between swimlanes and reorder them visually.
+              <div
+                class="card-subtitle"
+                style="font-size: 12px; color: #6b7280;"
+              >
+                Drag UML activity nodes between swimlanes and reorder them
+                visually.
               </div>
             </div>
           </div>
@@ -1140,19 +1162,30 @@ export class AdCatalogView extends LitElement {
           ></ad-canvas-editor>
 
           <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">
-            Use the toolbar inside the canvas to add actions and arrange them. The editor emits a structured representation compatible with your backend model.
+            Use the toolbar inside the canvas to add actions and arrange them.
+            The editor emits a structured representation compatible with your
+            backend model.
           </div>
         </section>
 
         <!-- CARD 3: EXPANDABLE PLANTUML -->
         <section class="card">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+          <div
+            style="display: flex; justify-content: space-between; align-items: center; gap: 10px;"
+          >
             <div>
-              <div class="card-title" style="font-size: 14px; font-weight: 500; color: #d1d5db;">
+              <div
+                class="card-title"
+                style="font-size: 14px; font-weight: 500; color: #d1d5db;"
+              >
                 Generated PlantUML
               </div>
-              <div class="card-subtitle" style="font-size: 11px; color: #6b7280;">
-                Inspect the PlantUML code generated by the LLM before saving it.
+              <div
+                class="card-subtitle"
+                style="font-size: 11px; color: #6b7280;"
+              >
+                Inspect the PlantUML code generated by the LLM before saving
+                it.
               </div>
             </div>
             <button
@@ -1171,27 +1204,27 @@ export class AdCatalogView extends LitElement {
                   ${this.editGeneratedPlantuml
                     ? html`<pre>${this.editGeneratedPlantuml}</pre>`
                     : html`<div class="placeholder small">
-                        Generated PlantUML code will appear here after you click <strong>Generate diagram</strong>.
+                        Generated PlantUML code will appear here after you
+                        click <strong>Generate diagram</strong>.
                       </div>`}
                 </div>
               `
             : null}
         </section>
-
       </div>
     `;
   }
 
-  // ===== HANDLERS: FILTERS & SELECTION =====
+  // ---------------------------------------------------------------------------
+  // Handlers: filters & selection
+  // ---------------------------------------------------------------------------
 
   private onNameFilterChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    this.nameFilter = target.value;
+    this.nameFilter = (event.target as HTMLInputElement).value;
   }
 
   private onDomainFilterChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    this.domainFilter = target.value;
+    this.domainFilter = (event.target as HTMLInputElement).value;
   }
 
   private onReloadClick(): void {
@@ -1204,25 +1237,24 @@ export class AdCatalogView extends LitElement {
   }
 
   private onTogglePlantuml(versionId: number): void {
-      this.expandedVersionId =
-        this.expandedVersionId === versionId ? null : versionId;
-      this.isDetailCodeExpanded = false; // ADD THIS — reset on every open/close
-    }
+    this.expandedVersionId =
+      this.expandedVersionId === versionId ? null : versionId;
+    this.isDetailCodeExpanded = false;
+  }
 
-  // ===== HANDLERS: DELETE / PUBLISH =====
+  // ---------------------------------------------------------------------------
+  // Handlers: delete / publish
+  // ---------------------------------------------------------------------------
 
   private async onDeleteAllClick(): Promise<void> {
-    if (!confirm('Delete ALL processes and their versions from catalog?')) {
-      return;
-    }
+    if (!confirm('Delete ALL your processes and their versions from catalog?')) return;
     this.isDeletingAll = true;
     try {
       const resp = await fetch('http://localhost:8000/api/v1/catalog', {
         method: 'DELETE',
+        headers: { ...this.authHeaders() },
       });
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
       this.selectedProcessId = null;
       this.processDetail = null;
       this.expandedVersionId = null;
@@ -1244,19 +1276,15 @@ export class AdCatalogView extends LitElement {
       !confirm(
         `Delete process "${this.processDetail.process_name}" and all its versions?`
       )
-    ) {
-      return;
-    }
+    ) return;
 
     this.isDeletingProcess = true;
     try {
       const resp = await fetch(
         `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}`,
-        { method: 'DELETE' }
+        { method: 'DELETE', headers: { ...this.authHeaders() } }
       );
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
       this.selectedProcessId = null;
       this.processDetail = null;
       this.expandedVersionId = null;
@@ -1277,22 +1305,16 @@ export class AdCatalogView extends LitElement {
       !confirm(
         `Delete version #${v.version_number} (${v.version_name || 'no name'})?`
       )
-    ) {
-      return;
-    }
+    ) return;
 
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
         `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}`,
-        { method: 'DELETE' }
+        { method: 'DELETE', headers: { ...this.authHeaders() } }
       );
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
-      if (this.expandedVersionId === v.id) {
-        this.expandedVersionId = null;
-      }
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
+      if (this.expandedVersionId === v.id) this.expandedVersionId = null;
       await this.loadProcessDetail(v.process_id);
       await this.loadProcesses();
     } catch (error: unknown) {
@@ -1307,19 +1329,15 @@ export class AdCatalogView extends LitElement {
   }
 
   private async onPublishVersionClick(v: CatalogVersion): Promise<void> {
-    if (!confirm(`Publish version #${v.version_number}?`)) {
-      return;
-    }
+    if (!confirm(`Publish version #${v.version_number}?`)) return;
 
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
         `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}/publish`,
-        { method: 'PUT' }
+        { method: 'PUT', headers: { ...this.authHeaders() } }
       );
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
       await this.loadProcessDetail(v.process_id);
       await this.loadProcesses();
     } catch (error: unknown) {
@@ -1333,61 +1351,63 @@ export class AdCatalogView extends LitElement {
     }
   }
 
-  // ===== HANDLERS: CREATE / UPDATE VERSION (NAVIGATION) =====
+  // ---------------------------------------------------------------------------
+  // Handlers: create / update version (navigation)
+  // ---------------------------------------------------------------------------
 
   private onCreateVersionClick(): void {
-      if (!this.processDetail || !this.processDetail.versions.length) {
-        this.detailError =
-          'Cannot create new version – process detail or versions are not loaded.';
-        return;
-      }
-
-      const versions = this.processDetail.versions;
-
-      // Prefer active version; otherwise newest by created_at
-      const base =
-        versions.find((v) => v.status === 'active') ??
-        [...versions].sort(
-          (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0];
-
-      this.subView = 'create';
-      this.editMode = 'create';
-      this.editProcessId = this.processDetail.process_id;
-      this.editProcessName = this.processDetail.process_name;
-      this.editVersionNumber = null;
-      this.editVersionLabel = '';
-      this.editDescriptionOriginal = '';
-      this.editDescriptionCurrent = '';
-      this.editGeneratedPlantuml = base ? base.plantuml_code : '';
-      this.editPromptJson = base ? base.prompt : null;
-      this.editPromptText =
-        base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
-      this.editError = '';
-      this.isPlantUmlExpanded = false;
-
-      this.initCanvasForEdit(base?.canvas_state ?? null, this.editPromptJson);
+    if (!this.processDetail || !this.processDetail.versions.length) {
+      this.detailError =
+        'Cannot create new version – process detail or versions are not loaded.';
+      return;
     }
 
-  private onUpdateVersionClick(v: CatalogVersion): void {
-      if (v.status !== 'draft') return;
-      this.subView = 'update';
-      this.editMode = 'update';
-      this.editProcessId = v.process_id;
-      this.editProcessName = this.processDetail?.process_name ?? '';
-      this.editVersionNumber = v.version_number;
-      this.editVersionLabel = v.version_name;
-      this.editDescriptionOriginal = '';
-      this.editDescriptionCurrent = '';
-      this.editGeneratedPlantuml = v.plantuml_code;
-      this.editPromptJson = v.prompt ?? null;
-      this.editPromptText =
-        v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
-      this.editError = '';
-      this.isPlantUmlExpanded = false;
+    const versions = this.processDetail.versions;
 
-      this.initCanvasForEdit(v.canvas_state ?? null, this.editPromptJson);
+    // Prefer active version; otherwise newest by created_at
+    const base =
+      versions.find((v) => v.status === 'active') ??
+      [...versions].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0];
+
+    this.subView = 'create';
+    this.editMode = 'create';
+    this.editProcessId = this.processDetail.process_id;
+    this.editProcessName = this.processDetail.process_name;
+    this.editVersionNumber = null;
+    this.editVersionLabel = '';
+    this.editDescriptionOriginal = '';
+    this.editDescriptionCurrent = '';
+    this.editGeneratedPlantuml = base ? base.plantuml_code : '';
+    this.editPromptJson = base ? base.prompt : null;
+    this.editPromptText =
+      base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
+    this.editError = '';
+    this.isPlantUmlExpanded = false;
+
+    this.initCanvasForEdit(base?.canvas_state ?? null, this.editPromptJson);
+  }
+
+  private onUpdateVersionClick(v: CatalogVersion): void {
+    if (v.status !== 'draft') return;
+    this.subView = 'update';
+    this.editMode = 'update';
+    this.editProcessId = v.process_id;
+    this.editProcessName = this.processDetail?.process_name ?? '';
+    this.editVersionNumber = v.version_number;
+    this.editVersionLabel = v.version_name;
+    this.editDescriptionOriginal = '';
+    this.editDescriptionCurrent = '';
+    this.editGeneratedPlantuml = v.plantuml_code;
+    this.editPromptJson = v.prompt ?? null;
+    this.editPromptText =
+      v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
+    this.editError = '';
+    this.isPlantUmlExpanded = false;
+
+    this.initCanvasForEdit(v.canvas_state ?? null, this.editPromptJson);
   }
 
   private onBackToCatalogClick(): void {
@@ -1399,7 +1419,10 @@ export class AdCatalogView extends LitElement {
     this.editPromptText = '';
   }
 
-  // ===== HANDLERS: EDIT FORM =====
+  // ---------------------------------------------------------------------------
+  // Handlers: edit form
+  // ---------------------------------------------------------------------------
+
   private onTogglePlantUmlClick(): void {
     this.isPlantUmlExpanded = !this.isPlantUmlExpanded;
   }
@@ -1413,57 +1436,56 @@ export class AdCatalogView extends LitElement {
   }
 
   private async initCanvasForEdit(
-      canvasState: Record<string, unknown> | null,
-      prompt: any
-    ): Promise<void> {
-      await this.updateComplete;
-      const canvas = this.renderRoot?.querySelector(
-        'ad-canvas-editor:not([data-version-id])'
-      ) as any;
-      if (!canvas) return;
+    canvasState: Record<string, unknown> | null,
+    prompt: any
+  ): Promise<void> {
+    await this.updateComplete;
+    const canvas = this.renderRoot?.querySelector(
+      'ad-canvas-editor:not([data-version-id])'
+    ) as any;
+    if (!canvas) return;
 
-      // Prefer saved pixel-perfect state over recalculated layout
-      if (canvasState && typeof canvas.setFullState === 'function') {
-        canvas.setFullState(canvasState);
-        return;
-      }
-
-      // Fallback: rebuild layout from prompt structure
-      if (typeof canvas.setStructure === 'function') {
-        if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
-          const structure = {
-            actors: prompt.actors as string[],
-            actions: (prompt.actions as any[]).map((a: any) => ({
-              actor: a.actor,
-              action: a.action,
-            })),
-            decisions: Array.isArray(prompt.decisions)
-              ? (prompt.decisions as any[]).map((d: any) => ({
-                  condition: d.condition,
-                  branchyes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
-                  branchno: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
-                  yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
-                  no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
-                }))
-              : null,
-            parallelblocks: null,
-          };
-          canvas.setStructure(structure);
-        } else {
-          canvas.setStructure({ actors: [], actions: [], decisions: [] });
-        }
-      }
+    // Prefer saved pixel-perfect state over recalculated layout
+    if (canvasState && typeof canvas.setFullState === 'function') {
+      canvas.setFullState(canvasState);
+      return;
     }
 
+    // Fallback: rebuild layout from prompt structure
+    if (typeof canvas.setStructure === 'function') {
+      if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
+        canvas.setStructure({
+          actors: prompt.actors as string[],
+          actions: (prompt.actions as any[]).map((a: any) => ({
+            actor: a.actor,
+            action: a.action,
+          })),
+          decisions: Array.isArray(prompt.decisions)
+            ? (prompt.decisions as any[]).map((d: any) => ({
+                condition: d.condition,
+                branchyes:
+                  d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+                branchno:
+                  d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+                yes_action_index:
+                  d.yes_action_index ?? d.yesActionIndex ?? null,
+                no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
+              }))
+            : null,
+          parallelblocks: null,
+        });
+      } else {
+        canvas.setStructure({ actors: [], actions: [], decisions: [] });
+      }
+    }
+  }
 
   private onEditVersionLabelChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    this.editVersionLabel = target.value;
+    this.editVersionLabel = (event.target as HTMLInputElement).value;
   }
 
   private onEditDescriptionChange(event: Event): void {
-    const target = event.target as HTMLTextAreaElement;
-    this.editDescriptionCurrent = target.value;
+    this.editDescriptionCurrent = (event.target as HTMLTextAreaElement).value;
   }
 
   private onRevertEditClick(): void {
@@ -1471,11 +1493,9 @@ export class AdCatalogView extends LitElement {
     this.editError = '';
   }
 
-  // Generate only (preview) – uses /generate-from-text, does not save
+  // Generate only (preview) — uses /generate-from-text, does NOT save, no auth needed
   private async onEditGenerateClick(): Promise<void> {
-    if (!this.editMode || this.editProcessId === null || !this.processDetail) {
-      return;
-    }
+    if (!this.editMode || this.editProcessId === null || !this.processDetail) return;
 
     const description = this.editDescriptionCurrent.trim();
     if (!description) {
@@ -1489,12 +1509,7 @@ export class AdCatalogView extends LitElement {
     this.isGenerating = true;
     this.editError = '';
 
-    const payload = { description };
-
-    const params = new URLSearchParams({
-      process_name: processName,
-      domain,
-    });
+    const params = new URLSearchParams({ process_name: processName, domain });
     if (this.editVersionLabel.trim()) {
       params.append('version_name', this.editVersionLabel.trim());
     }
@@ -1504,10 +1519,8 @@ export class AdCatalogView extends LitElement {
         `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description }),
         }
       );
       if (!resp.ok) {
@@ -1524,7 +1537,6 @@ export class AdCatalogView extends LitElement {
       this.editPromptJson = data.prompt ?? null;
       this.editPromptText =
         data.prompt != null ? JSON.stringify(data.prompt, null, 2) : '';
-
       this.isPlantUmlExpanded = true;
       this.initCanvasForEdit(null, this.editPromptJson);
     } catch (error: unknown) {
@@ -1538,7 +1550,7 @@ export class AdCatalogView extends LitElement {
     }
   }
 
-  // Save generated PlantUML as new version or update draft
+  // Save generated PlantUML as new version or update draft (auth required)
   private async onEditSaveClick(): Promise<void> {
     if (!this.editMode || this.editProcessId === null) return;
 
@@ -1549,11 +1561,10 @@ export class AdCatalogView extends LitElement {
       return;
     }
 
-    // If user edited JSON, validate it before sending
     if (this.editPromptText.trim()) {
       try {
         this.editPromptJson = JSON.parse(this.editPromptText);
-      } catch (err) {
+      } catch {
         this.editError =
           'Prompt JSON is not valid JSON. Please fix it or clear the field.';
         return;
@@ -1584,9 +1595,7 @@ export class AdCatalogView extends LitElement {
 
     if (this.editMode === 'create') {
       url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions`;
-      if (params.toString()) {
-        url += `?${params.toString()}`;
-      }
+      if (params.toString()) url += `?${params.toString()}`;
       method = 'POST';
     } else {
       if (this.editVersionNumber === null) {
@@ -1595,9 +1604,7 @@ export class AdCatalogView extends LitElement {
         return;
       }
       url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions/${this.editVersionNumber}`;
-      if (params.toString()) {
-        url += `?${params.toString()}`;
-      }
+      if (params.toString()) url += `?${params.toString()}`;
       method = 'PUT';
     }
 
@@ -1612,6 +1619,7 @@ export class AdCatalogView extends LitElement {
         method,
         headers: {
           'Content-Type': 'application/json',
+          ...this.authHeaders(),
         },
         body: JSON.stringify(payload),
       });
@@ -1625,7 +1633,6 @@ export class AdCatalogView extends LitElement {
       }
 
       const version = (await resp.json()) as CatalogVersion;
-
       this.editGeneratedPlantuml = version.plantuml_code;
       this.editVersionNumber = version.version_number;
       this.editVersionLabel = version.version_name;
@@ -1633,9 +1640,7 @@ export class AdCatalogView extends LitElement {
       this.editPromptText =
         version.prompt != null ? JSON.stringify(version.prompt, null, 2) : '';
 
-      if (this.editMode === 'create') {
-        this.editMode = 'update';
-      }
+      if (this.editMode === 'create') this.editMode = 'update';
 
       await this.loadProcessDetail(version.process_id);
       await this.loadProcesses();

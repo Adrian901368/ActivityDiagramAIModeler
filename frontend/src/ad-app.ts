@@ -150,6 +150,13 @@ export class AdApp extends LitElement {
       margin-bottom: 4px;
     }
 
+    .label-optional {
+      font-size: 11px;
+      font-weight: 400;
+      color: #4b5563;
+      margin-left: 5px;
+    }
+
     input[type='text'],
     textarea {
       width: 100%;
@@ -180,6 +187,19 @@ export class AdApp extends LitElement {
     textarea {
       min-height: 160px;
       resize: vertical;
+    }
+
+    /* Two-column layout for optional description fields */
+    .descriptions-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .descriptions-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
 
     .meta-grid {
@@ -435,7 +455,6 @@ export class AdApp extends LitElement {
       color: #9ca3af;
     }
 
-    /* User info chip shown in header when logged in */
     .user-chip {
       display: inline-flex;
       align-items: center;
@@ -467,8 +486,9 @@ export class AdApp extends LitElement {
     }
   `;
 
-  // Authenticated user — empty string means not logged in
-  @state() private userEmail = '';
+  // Persist login across refreshes — read from localStorage on init
+  @state() private userEmail: string =
+    localStorage.getItem('ad_user_email') ?? '';
 
   @state() private view: View = 'generate';
 
@@ -476,6 +496,10 @@ export class AdApp extends LitElement {
   @state() private domain = '';
   @state() private versionName = '';
   @state() private processText = '';
+  // Optional: human-readable description of the process (saved to DB)
+  @state() private processDescription = '';
+  // Optional: description of the initial version (DB integration later)
+  @state() private initialVersionDescription = '';
 
   @state() private isGenerating = false;
   @state() private isSaving = false;
@@ -487,9 +511,7 @@ export class AdApp extends LitElement {
   @state() private isLoadingProcesses = false;
   @state() private processesError = '';
 
-  // Stores last structured prompt returned by backend
   @state() private lastPrompt: any = null;
-  // Editable JSON representation of the structured prompt (or canvas structure)
   @state() private promptText = '';
 
   @state() private isPlantUmlExpanded = false;
@@ -511,7 +533,6 @@ export class AdApp extends LitElement {
   // ---------------------------------------------------------------------------
 
   override firstUpdated(): void {
-    // Only load processes after the user has logged in
     if (this.isLoggedIn) this.loadProcesses();
   }
 
@@ -546,13 +567,11 @@ export class AdApp extends LitElement {
   // ---------------------------------------------------------------------------
 
   override render() {
-    // Show login screen when not authenticated
     if (!this.isLoggedIn) {
       return html`
         <ad-login-view @login-success=${this.onLoginSuccess}></ad-login-view>
       `;
     }
-
     return this.view === 'generate'
       ? this.renderGenerateView()
       : this.renderCatalogView();
@@ -566,16 +585,16 @@ export class AdApp extends LitElement {
             <div>
               <div class="badge">
                 <span class="badge-dot"></span>
-                UML Activity Generator
+                UML Activity Catalog Generator
               </div>
-              <h1>AI-supported UML activity diagram modeling</h1>
+              <h1>AI-supported UML activity diagram Modeling Tool and Catalog</h1>
             </div>
             ${this.renderUserChip()}
           </div>
           <p class="subtitle">
             Describe a process in natural language and let the model generate a
-            UML activity diagram in PlantUML syntax. You can store multiple
-            versions per process and domain.
+            UML activity diagram. You can store multiple versions
+            per process and domain.
           </p>
         </header>
 
@@ -604,7 +623,7 @@ export class AdApp extends LitElement {
             <section class="card">
               <div class="card-header">
                 <div>
-                  <div class="card-title">Process description</div>
+                  <div class="card-title">Create a process</div>
                   <div class="card-subtitle">
                     Name the process, specify domain and describe the flow in
                     text.
@@ -612,6 +631,7 @@ export class AdApp extends LitElement {
                 </div>
               </div>
 
+              <!-- Row 1: process name / domain / version label -->
               <div class="meta-grid">
                 <div>
                   <label for="processName">Process name</label>
@@ -648,6 +668,35 @@ export class AdApp extends LitElement {
                 </div>
               </div>
 
+              <!-- Row 2: process description + initial version description (side by side) -->
+              <div class="descriptions-grid">
+                <div>
+                  <label for="processDescription">
+                    Process description
+                    <span class="label-optional">optional</span>
+                  </label>
+                  <textarea
+                    id="processDescription"
+                    .value=${this.processDescription}
+                    @input=${this.onProcessDescriptionChange}
+                    placeholder="Brief description of what this process represents. Saved to the catalog alongside the process name."
+                  ></textarea>
+                </div>
+                <div>
+                  <label for="initialVersionDescription">
+                    Initial version description
+                    <span class="label-optional">optional</span>
+                  </label>
+                  <textarea
+                    id="initialVersionDescription"
+                    .value=${this.initialVersionDescription}
+                    @input=${this.onInitialVersionDescriptionChange}
+                    placeholder="Notes about this specific version — e.g. assumptions made, known limitations or planned next steps."
+                  ></textarea>
+                </div>
+              </div>
+
+              <!-- Row 3: text prompt -->
               <div>
                 <label for="processText">Text prompt</label>
                 <textarea
@@ -656,10 +705,6 @@ export class AdApp extends LitElement {
                   @input=${this.onTextChange}
                   placeholder="Describe the process step-by-step. Include actors, decisions, and important alternative or error flows."
                 ></textarea>
-                <div class="hint">
-                  Tip: Start from one of the scenarios in your thesis and
-                  refine it into a precise step-by-step description.
-                </div>
               </div>
 
               <div class="actions">
@@ -714,7 +759,7 @@ export class AdApp extends LitElement {
             <section class="card">
               <div class="card-header">
                 <div>
-                  <div class="card-title">Visual canvas editor (beta)</div>
+                  <div class="card-title">Visual canvas editor</div>
                   <div class="card-subtitle">
                     Drag UML activity nodes between swimlanes and reorder them
                     visually.
@@ -739,8 +784,7 @@ export class AdApp extends LitElement {
                 <div>
                   <div class="diagram-title">Generated PlantUML</div>
                   <div class="diagram-meta">
-                    Inspect the PlantUML code generated by the LLM before
-                    saving it to the catalog.
+                    Inspect the PlantUML generated code.
                   </div>
                 </div>
                 <button
@@ -802,7 +846,6 @@ export class AdApp extends LitElement {
     `;
   }
 
-  // Renders the logged-in user chip + logout button shown in the header
   private renderUserChip() {
     if (!this.isLoggedIn) return null;
     return html`
@@ -828,17 +871,14 @@ export class AdApp extends LitElement {
     if (this.isLoadingProcesses) {
       return html`<div class="placeholder small">Loading processes…</div>`;
     }
-
     if (this.processesError) {
       return html`<div class="error small">${this.processesError}</div>`;
     }
-
     if (!this.processes.length) {
       return html`<div class="placeholder small">
         No processes in the catalog yet. Generate and save your first diagram.
       </div>`;
     }
-
     return html`
       <ul class="process-list">
         ${this.processes.map(
@@ -866,14 +906,14 @@ export class AdApp extends LitElement {
 
   private onLoginSuccess(e: CustomEvent): void {
     this.userEmail = (e.detail as { email: string }).email;
-    // Load sidebar processes now that we have auth
+    localStorage.setItem('ad_user_email', this.userEmail);
     this.loadProcesses();
   }
 
   private onLogoutClick(): void {
+    localStorage.removeItem('ad_user_email');
     this.userEmail = '';
     this.view = 'generate';
-    // Clear any user-specific state
     this.processes = [];
     this.processesError = '';
     this.plantuml = '';
@@ -881,6 +921,8 @@ export class AdApp extends LitElement {
     this.processName = '';
     this.domain = '';
     this.versionName = '';
+    this.processDescription = '';
+    this.initialVersionDescription = '';
     this.lastPrompt = null;
     this.promptText = '';
     this.errorMessage = '';
@@ -901,6 +943,14 @@ export class AdApp extends LitElement {
 
   private onVersionNameChange(e: Event): void {
     this.versionName = (e.target as HTMLInputElement).value;
+  }
+
+  private onProcessDescriptionChange(e: Event): void {
+    this.processDescription = (e.target as HTMLTextAreaElement).value;
+  }
+
+  private onInitialVersionDescriptionChange(e: Event): void {
+    this.initialVersionDescription = (e.target as HTMLTextAreaElement).value;
   }
 
   private onTextChange(e: Event): void {
@@ -945,7 +995,6 @@ export class AdApp extends LitElement {
       const params = new URLSearchParams({ process_name: name, domain });
       if (version) params.set('version_name', version);
 
-      // Generation does NOT require auth — stateless endpoint
       const response = await fetch(
         `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
         {
@@ -970,7 +1019,6 @@ export class AdApp extends LitElement {
       const prompt = data.prompt ?? null;
       this.lastPrompt = prompt;
 
-      // Map backend prompt -> structure for canvas (preserve decisions + indices)
       if (
         prompt &&
         Array.isArray(prompt.actors) &&
@@ -995,7 +1043,6 @@ export class AdApp extends LitElement {
                   d.no_action_index ?? d.noActionIndex ?? null,
               }))
             : null,
-          // Parallel blocks are not yet used in the canvas editor
           parallelblocks: null,
         };
 
@@ -1031,6 +1078,7 @@ export class AdApp extends LitElement {
     const domain = this.domain.trim();
     const version = this.versionName.trim();
     const code = this.plantuml.trim();
+    const processDesc = this.processDescription.trim();
 
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
@@ -1041,7 +1089,6 @@ export class AdApp extends LitElement {
       return;
     }
 
-    // Validate / choose prompt JSON before we start saving
     let promptForSave: any = {};
     if (this.promptText.trim()) {
       try {
@@ -1055,7 +1102,6 @@ export class AdApp extends LitElement {
       promptForSave = this.lastPrompt ?? {};
     }
 
-    // Get canvas state snapshot
     const canvas = this.renderRoot?.querySelector('ad-canvas-editor') as any;
     const canvasState =
       canvas && typeof canvas.getFullState === 'function'
@@ -1067,6 +1113,8 @@ export class AdApp extends LitElement {
     try {
       const params = new URLSearchParams({ process_name: name, domain });
       if (version) params.set('version_name', version);
+      // Pass process description to backend so it can be stored in Process.description
+      if (processDesc) params.set('process_description', processDesc);
 
       const payload = {
         plantuml_code: code,
@@ -1116,6 +1164,8 @@ export class AdApp extends LitElement {
     this.processText = '';
     this.plantuml = '';
     this.versionName = '';
+    this.processDescription = '';
+    this.initialVersionDescription = '';
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
     this.lastPrompt = null;

@@ -1,5 +1,12 @@
+"""
+FastAPI application entry point.
+
+Configures CORS, mounts static files, registers the v1 router,
+and initialises the database on startup.
+"""
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # CORS for frontend
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -16,7 +23,10 @@ app = FastAPI(
     openapi_url="/api-schema",
 )
 
-# Allow frontend (Vite dev server) to call this API
+# Allow frontend (Vite dev server) to call this API.
+# NOTE: explicit header list is required — using ["*"] with
+# allow_credentials=True breaks CORS preflight in Safari/WebKit
+# for custom headers like X-User-Email.
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -26,8 +36,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-User-Email",       # custom auth header used by the frontend
+    ],
+    expose_headers=["Content-Type"],
 )
 
 # Serve generated PNG diagrams as static files
@@ -52,13 +70,13 @@ async def healthcheck() -> dict:
 
 @app.get("/", tags=["meta"])
 async def root() -> dict:
-    """Root endpoint - quick check that the API is running."""
+    """Root endpoint – quick check that the API is running."""
     return {"message": "ActivityDiagramAIModeler API runs."}
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    """Application startup hook. Initializes the database."""
+    """Application startup hook. Initialises the database."""
     init_db()
 
 
