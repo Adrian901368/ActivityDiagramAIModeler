@@ -1,7 +1,8 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import './ad-catalog-view'; // catalog screen
-import './ad-canvas-editor'; // visual canvas editor
+import './ad-login-view';
+import './ad-catalog-view';
+import './ad-canvas-editor';
 
 interface CatalogProcess {
   id: number;
@@ -269,6 +270,16 @@ export class AdApp extends LitElement {
       transform: none;
     }
 
+    button.danger {
+      background: rgba(127, 29, 29, 0.9);
+      color: #fee2e2;
+      border: 1px solid rgba(248, 113, 113, 0.9);
+    }
+
+    button.danger:hover:not(:disabled) {
+      background: rgba(153, 27, 27, 1);
+    }
+
     button.full-width {
       width: 100%;
       justify-content: center;
@@ -423,7 +434,41 @@ export class AdApp extends LitElement {
       border: 1px solid rgba(55, 65, 81, 0.9);
       color: #9ca3af;
     }
+
+    /* User info chip shown in header when logged in */
+    .user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      border-radius: 999px;
+      padding: 5px 12px 5px 8px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    .user-chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #4ade80;
+      box-shadow: 0 0 8px rgba(74, 222, 128, 0.7);
+      flex-shrink: 0;
+    }
+
+    .user-chip-email {
+      color: #d1d5db;
+      font-weight: 500;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   `;
+
+  // Authenticated user — empty string means not logged in
+  @state() private userEmail = '';
 
   @state() private view: View = 'generate';
 
@@ -449,9 +494,30 @@ export class AdApp extends LitElement {
 
   @state() private isPlantUmlExpanded = false;
 
-  override firstUpdated(): void {
-    this.loadProcesses();
+  // ---------------------------------------------------------------------------
+  // Auth helpers
+  // ---------------------------------------------------------------------------
+
+  private authHeaders(): Record<string, string> {
+    return this.userEmail ? { 'X-User-Email': this.userEmail } : {};
   }
+
+  private get isLoggedIn(): boolean {
+    return this.userEmail.length > 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  override firstUpdated(): void {
+    // Only load processes after the user has logged in
+    if (this.isLoggedIn) this.loadProcesses();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Data loading
+  // ---------------------------------------------------------------------------
 
   private async loadProcesses(): Promise<void> {
     this.isLoadingProcesses = true;
@@ -459,10 +525,9 @@ export class AdApp extends LitElement {
     try {
       const resp = await fetch(
         'http://localhost:8000/api/v1/catalog/processes',
+        { headers: { ...this.authHeaders() } }
       );
-      if (!resp.ok) {
-        throw new Error(`Backend returned status ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
       const data = (await resp.json()) as CatalogProcess[];
       this.processes = data.sort((a, b) => b.id - a.id);
     } catch (error: unknown) {
@@ -476,7 +541,18 @@ export class AdApp extends LitElement {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   override render() {
+    // Show login screen when not authenticated
+    if (!this.isLoggedIn) {
+      return html`
+        <ad-login-view @login-success=${this.onLoginSuccess}></ad-login-view>
+      `;
+    }
+
     return this.view === 'generate'
       ? this.renderGenerateView()
       : this.renderCatalogView();
@@ -494,6 +570,7 @@ export class AdApp extends LitElement {
               </div>
               <h1>AI-supported UML activity diagram modeling</h1>
             </div>
+            ${this.renderUserChip()}
           </div>
           <p class="subtitle">
             Describe a process in natural language and let the model generate a
@@ -598,7 +675,7 @@ export class AdApp extends LitElement {
                   </button>
                   <button
                     class="secondary"
-                    ?disabled=${!this.plantuml.trim()}
+                    ?disabled=${this.isSaving || !this.plantuml.trim()}
                     @click=${this.onSaveClick}
                   >
                     ${this.isSaving ? 'Saving…' : 'Save to catalog'}
@@ -616,15 +693,15 @@ export class AdApp extends LitElement {
                     class="status-dot ${this.errorMessage
                       ? 'error'
                       : this.lastSaveSucceeded
-                        ? ''
-                        : 'pending'}"
+                      ? ''
+                      : 'pending'}"
                     aria-hidden="true"
                   ></span>
                   ${this.errorMessage
                     ? 'Last operation failed.'
                     : this.lastSaveSucceeded
-                      ? 'Last save succeeded.'
-                      : 'Ready. Describe a process and generate a diagram.'}
+                    ? 'Last save succeeded.'
+                    : 'Ready. Describe a process and generate a diagram.'}
                 </div>
               </div>
 
@@ -633,7 +710,7 @@ export class AdApp extends LitElement {
                 : null}
             </section>
 
-            <!-- PRESUNUTÝ CANVAS EDITOR (TERAZ HORE) -->
+            <!-- CANVAS EDITOR -->
             <section class="card">
               <div class="card-header">
                 <div>
@@ -656,13 +733,14 @@ export class AdApp extends LitElement {
               </div>
             </section>
 
-            <!-- PRESUNUTÝ A ROZBALITEĽNÝ PLANTUML (TERAZ DOLE) -->
+            <!-- EXPANDABLE PLANTUML -->
             <section class="card">
               <div class="diagram-header" style="margin-bottom: 0;">
                 <div>
                   <div class="diagram-title">Generated PlantUML</div>
                   <div class="diagram-meta">
-                    Inspect the PlantUML code generated by the LLM before saving it to the catalog.
+                    Inspect the PlantUML code generated by the LLM before
+                    saving it to the catalog.
                   </div>
                 </div>
                 <button
@@ -681,8 +759,8 @@ export class AdApp extends LitElement {
                       ${this.plantuml
                         ? html`<pre>${this.plantuml}</pre>`
                         : html`<div class="placeholder">
-                            Generated PlantUML code will appear here after you run
-                            generation.
+                            Generated PlantUML code will appear here after you
+                            run generation.
                           </div>`}
                     </div>
                   `
@@ -706,9 +784,12 @@ export class AdApp extends LitElement {
               </div>
               <h1>Catalog of generated activity diagrams</h1>
             </div>
-            <button class="secondary" @click=${this.onBackToGenerateClick}>
-              Back to generator
-            </button>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <button class="secondary" @click=${this.onBackToGenerateClick}>
+                Back to generator
+              </button>
+              ${this.renderUserChip()}
+            </div>
           </div>
           <p class="subtitle">
             Browse processes, their versions and inspect PlantUML code for each
@@ -716,7 +797,29 @@ export class AdApp extends LitElement {
           </p>
         </header>
 
-        <ad-catalog-view></ad-catalog-view>
+        <ad-catalog-view .userEmail=${this.userEmail}></ad-catalog-view>
+      </div>
+    `;
+  }
+
+  // Renders the logged-in user chip + logout button shown in the header
+  private renderUserChip() {
+    if (!this.isLoggedIn) return null;
+    return html`
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="user-chip">
+          <span class="user-chip-dot"></span>
+          <span class="user-chip-email" title=${this.userEmail}>
+            ${this.userEmail}
+          </span>
+        </div>
+        <button
+          class="danger"
+          style="font-size: 12px; padding: 6px 12px;"
+          @click=${this.onLogoutClick}
+        >
+          Log out
+        </button>
       </div>
     `;
   }
@@ -746,7 +849,7 @@ export class AdApp extends LitElement {
                 ${p.domain ?? 'No domain'} • ${p.versions_count} version(s)
               </div>
             </li>
-          `,
+          `
         )}
       </ul>
       <div class="catalog-actions">
@@ -757,24 +860,51 @@ export class AdApp extends LitElement {
     `;
   }
 
+  // ---------------------------------------------------------------------------
+  // Auth handlers
+  // ---------------------------------------------------------------------------
+
+  private onLoginSuccess(e: CustomEvent): void {
+    this.userEmail = (e.detail as { email: string }).email;
+    // Load sidebar processes now that we have auth
+    this.loadProcesses();
+  }
+
+  private onLogoutClick(): void {
+    this.userEmail = '';
+    this.view = 'generate';
+    // Clear any user-specific state
+    this.processes = [];
+    this.processesError = '';
+    this.plantuml = '';
+    this.processText = '';
+    this.processName = '';
+    this.domain = '';
+    this.versionName = '';
+    this.lastPrompt = null;
+    this.promptText = '';
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Input handlers
+  // ---------------------------------------------------------------------------
+
   private onProcessNameChange(e: Event): void {
-    const target = e.target as HTMLInputElement;
-    this.processName = target.value;
+    this.processName = (e.target as HTMLInputElement).value;
   }
 
   private onDomainChange(e: Event): void {
-    const target = e.target as HTMLInputElement;
-    this.domain = target.value;
+    this.domain = (e.target as HTMLInputElement).value;
   }
 
   private onVersionNameChange(e: Event): void {
-    const target = e.target as HTMLInputElement;
-    this.versionName = target.value;
+    this.versionName = (e.target as HTMLInputElement).value;
   }
 
   private onTextChange(e: Event): void {
-    const target = e.target as HTMLTextAreaElement;
-    this.processText = target.value;
+    this.processText = (e.target as HTMLTextAreaElement).value;
   }
 
   private onCanvasStructureChange(e: CustomEvent): void {
@@ -788,6 +918,10 @@ export class AdApp extends LitElement {
   private onTogglePlantUmlClick(): void {
     this.isPlantUmlExpanded = !this.isPlantUmlExpanded;
   }
+
+  // ---------------------------------------------------------------------------
+  // Generate
+  // ---------------------------------------------------------------------------
 
   private async onGenerateClick(): Promise<void> {
     const name = this.processName.trim();
@@ -808,22 +942,17 @@ export class AdApp extends LitElement {
     this.promptText = '';
 
     try {
-      const params = new URLSearchParams();
-      params.set('process_name', name);
-      params.set('domain', domain);
-      if (version) {
-        params.set('version_name', version);
-      }
+      const params = new URLSearchParams({ process_name: name, domain });
+      if (version) params.set('version_name', version);
 
+      // Generation does NOT require auth — stateless endpoint
       const response = await fetch(
         `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ description }),
-        },
+        }
       );
 
       if (!response.ok) {
@@ -836,8 +965,7 @@ export class AdApp extends LitElement {
       }
 
       const data = await response.json();
-      this.plantuml =
-        data.plantuml_code ?? JSON.stringify(data, null, 2);
+      this.plantuml = data.plantuml_code ?? JSON.stringify(data, null, 2);
 
       const prompt = data.prompt ?? null;
       this.lastPrompt = prompt;
@@ -857,44 +985,29 @@ export class AdApp extends LitElement {
           decisions: Array.isArray(prompt.decisions)
             ? (prompt.decisions as any[]).map((d: any) => ({
                 condition: d.condition,
-                // Map backend branch_yes/branch_no to canvas keys
                 branchyes:
-                  d.branch_yes ??
-                  d.branchyes ??
-                  d.branchYes ??
-                  'Yes branch',
+                  d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
                 branchno:
-                  d.branch_no ??
-                  d.branchno ??
-                  d.branchNo ??
-                  'No branch',
-                // NEW: pass through branch indices for canvas
+                  d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
                 yes_action_index:
-                  d.yes_action_index ??
-                  d.yesActionIndex ??
-                  null,
+                  d.yes_action_index ?? d.yesActionIndex ?? null,
                 no_action_index:
-                  d.no_action_index ??
-                  d.noActionIndex ??
-                  null,
+                  d.no_action_index ?? d.noActionIndex ?? null,
               }))
             : null,
           // Parallel blocks are not yet used in the canvas editor
           parallelblocks: null,
         };
 
-        // Mirror structure into JSON textarea
         this.promptText = JSON.stringify(structure, null, 2);
 
-        // Push structure into canvas editor
         const canvas = this.renderRoot?.querySelector(
-          'ad-canvas-editor',
+          'ad-canvas-editor'
         ) as any;
         if (canvas && typeof canvas.setStructure === 'function') {
           canvas.setStructure(structure);
         }
       } else {
-        // Fallback – keep original JSON if structure shape is unexpected
         this.promptText =
           prompt != null ? JSON.stringify(prompt, null, 2) : '';
       }
@@ -908,6 +1021,10 @@ export class AdApp extends LitElement {
       this.isGenerating = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Save
+  // ---------------------------------------------------------------------------
 
   private async onSaveClick(): Promise<void> {
     const name = this.processName.trim();
@@ -929,7 +1046,7 @@ export class AdApp extends LitElement {
     if (this.promptText.trim()) {
       try {
         promptForSave = JSON.parse(this.promptText);
-      } catch (err) {
+      } catch {
         this.errorMessage =
           'Prompt JSON is not valid JSON. Please fix it or clear the field.';
         return;
@@ -948,12 +1065,8 @@ export class AdApp extends LitElement {
     this.isSaving = true;
 
     try {
-      const params = new URLSearchParams();
-      params.set('process_name', name);
-      params.set('domain', domain);
-      if (version) {
-        params.set('version_name', version);
-      }
+      const params = new URLSearchParams({ process_name: name, domain });
+      if (version) params.set('version_name', version);
 
       const payload = {
         plantuml_code: code,
@@ -967,9 +1080,10 @@ export class AdApp extends LitElement {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...this.authHeaders(),
           },
           body: JSON.stringify(payload),
-        },
+        }
       );
 
       if (!response.ok) {
@@ -993,6 +1107,10 @@ export class AdApp extends LitElement {
       this.isSaving = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Navigation & misc handlers
+  // ---------------------------------------------------------------------------
 
   private onClearClick(): void {
     this.processText = '';
