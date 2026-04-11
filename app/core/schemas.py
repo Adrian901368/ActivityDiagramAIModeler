@@ -212,6 +212,7 @@ class CatalogVersion(BaseModel):
     process_id: int
     version_number: int
     version_name: str = ""
+    version_description: Optional[str] = None
     created_at: datetime
     llm_model: str
     tokens_used: Optional[int] = None
@@ -243,6 +244,7 @@ class ProcessInCatalog(BaseModel):
 class NewVersionInput(BaseModel):
     plantuml_code: str
     prompt: dict | None = None
+    version_description: Optional[str] = None
     # Full canvas layout snapshot sent from the frontend on save.
     canvas_state: Optional[Dict[str, Any]] = None
 

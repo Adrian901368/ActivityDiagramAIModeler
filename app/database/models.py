@@ -65,6 +65,7 @@ class Version(Base):
     - process_id INTEGER NOT NULL (FK -> processes.id)
     - version_number INTEGER NOT NULL
     - version_name VARCHAR NULL / "" (human-readable version label)
+    - version_description TEXT NULL (optional notes about this specific version)
     - owner_email VARCHAR(255) NULL (denormalized for quick per-user queries)
     - plantuml_code TEXT NOT NULL
     - prompt JSON NOT NULL (structured input / metadata)
@@ -83,6 +84,7 @@ class Version(Base):
 
     version_number = Column(Integer, nullable=False)
     version_name = Column(String, nullable=False, default="")
+    version_description = Column(Text, nullable=True, default=None)
 
     # Denormalized from Process.owner_email for convenient per-user filtering.
     owner_email = Column(String(255), nullable=True, index=True)
