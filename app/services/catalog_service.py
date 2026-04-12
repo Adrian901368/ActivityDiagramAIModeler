@@ -54,17 +54,18 @@ def save_process_version(
     llm_model: str,
     tokens_used: int | None = None,
     version_name: str | None = None,
-    version_description: str | None = None,
     owner_email: str | None = None,
     image_path: str | None = None,
     canvas_state: Dict[str, Any] | None = None,
     process_description: str | None = None,
+    version_description: str | None = None,
 ) -> Version:
     """
     Find or create Process by (name, domain, owner_email) and save a new Version.
     If version_name is not provided, it is generated automatically
     as 'vX' where X is the new version_number.
     """
+    # 1) find or create process
     process = get_or_create_process(
         db=db,
         name=process_name,
@@ -73,6 +74,7 @@ def save_process_version(
         owner_email=owner_email,
     )
 
+    # 2) find latest version_number for this process
     latest_number = (
         db.query(func.max(Version.version_number))
         .filter(Version.process_id == process.id)
@@ -82,14 +84,15 @@ def save_process_version(
 
     new_number = latest_number + 1
 
+    # 3) generate default version_name if not provided
     if not version_name:
         version_name = f"v{new_number}"
 
+    # 4) create and persist Version
     version = Version(
         process_id=process.id,
         version_number=new_number,
         version_name=version_name,
-        version_description=version_description,
         owner_email=owner_email,
         plantuml_code=plantuml_code,
         prompt=prompt_dict,
@@ -98,6 +101,7 @@ def save_process_version(
         status="draft",
         image_path=image_path,
         canvas_state=canvas_state,
+        version_description=version_description,
     )
 
     db.add(version)
@@ -182,9 +186,9 @@ def create_new_version_for_process(
     llm_model: str | None,
     tokens_used: int | None = None,
     version_name: str = "",
-    version_description: str | None = None,
     image_path: str | None = None,
     canvas_state: Dict[str, Any] | None = None,
+    version_description: str | None = None,
 ) -> Version:
     """
     Create a new Version row for an existing process.
@@ -215,7 +219,6 @@ def create_new_version_for_process(
         process_id=process_id,
         version_number=next_version_number,
         version_name=version_name,
-        version_description=version_description,
         owner_email=owner_email,
         plantuml_code=plantuml_code,
         prompt=prompt_dict or {},
@@ -224,6 +227,7 @@ def create_new_version_for_process(
         status="draft",
         image_path=image_path,
         canvas_state=canvas_state,
+        version_description=version_description,
     )
 
     db.add(new_version)
@@ -308,11 +312,13 @@ def publish_version(
     if version.status == "active":
         raise ValueError("Version is already active and cannot be re-published.")
 
+    # Archive all other versions of the same process
     db.query(Version).filter(
         Version.process_id == process_id,
         Version.version_number != version_number,
     ).update({"status": "archived"}, synchronize_session=False)
 
+    # Set selected version to active
     version.status = "active"
     db.commit()
     db.refresh(version)
@@ -328,13 +334,13 @@ def update_draft_version(
     owner_email: str,
     prompt_dict: dict | None,
     version_name: str = "",
-    version_description: str | None = None,
     image_path: str | None = None,
     canvas_state: Dict[str, Any] | None = None,
+    version_description: str | None = None,
 ) -> Version | None:
     """
-    Update PlantUML (and optional prompt + version_name + version_description
-    + image_path + canvas_state) for a version in 'draft' status.
+    Update PlantUML (and optional prompt + version_name + image_path + canvas_state
+    + version_description) for a version in 'draft' status.
 
     Verifies process ownership before updating.
     - No version -> returns None.
@@ -366,9 +372,10 @@ def update_draft_version(
     version.plantuml_code = plantuml_code
     version.prompt = prompt_dict or {}
     version.version_name = version_name
-    version.version_description = version_description
     version.image_path = image_path
     version.canvas_state = canvas_state
+    if version_description is not None:
+        version.version_description = version_description
 
     db.commit()
     db.refresh(version)

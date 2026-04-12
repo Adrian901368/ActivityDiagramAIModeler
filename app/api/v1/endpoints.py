@@ -730,6 +730,7 @@ async def save_generated_version(
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
+            # ✅ version_description comes from payload (initialVersionDescription on frontend)
             version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
@@ -862,6 +863,7 @@ async def get_process_catalog(
         process_id=process.id,
         process_name=process.name,
         domain=process.domain,
+        description=process.description,
         versions=version_items,
     )
 

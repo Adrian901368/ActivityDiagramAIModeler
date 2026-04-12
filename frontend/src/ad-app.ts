@@ -1,3 +1,4 @@
+// app/frontend/src/ad-app.ts
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import './ad-login-view';
@@ -503,7 +504,7 @@ export class AdApp extends LitElement {
   @state() private processText = '';
   // Optional: human-readable description of the process (saved to DB)
   @state() private processDescription = '';
-  // Optional: description of the initial version (DB integration later)
+  // Optional: description of the initial version (saved to DB as version_description)
   @state() private initialVersionDescription = '';
 
   @state() private isGenerating = false;
@@ -1084,6 +1085,8 @@ export class AdApp extends LitElement {
     const version = this.versionName.trim();
     const code = this.plantuml.trim();
     const processDesc = this.processDescription.trim();
+    // ✅ version_description is now included in the JSON payload
+    const versionDesc = this.initialVersionDescription.trim();
 
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
@@ -1118,13 +1121,14 @@ export class AdApp extends LitElement {
     try {
       const params = new URLSearchParams({ process_name: name, domain });
       if (version) params.set('version_name', version);
-      // Pass process description to backend so it can be stored in Process.description
       if (processDesc) params.set('process_description', processDesc);
 
       const payload = {
         plantuml_code: code,
         prompt: promptForSave,
         canvas_state: canvasState,
+        // ✅ sent to backend → NewVersionInput.version_description → Version.version_description
+        version_description: versionDesc || null,
       };
 
       const response = await fetch(

@@ -28,6 +28,7 @@ interface CatalogProcessDetail {
   process_id: number;
   process_name: string;
   domain: string | null;
+  description?: string | null;
   versions: CatalogVersion[];
 }
 
@@ -839,7 +840,7 @@ export class AdCatalogView extends LitElement {
       </div>`;
     }
 
-    const { process_name, domain, versions } = this.processDetail;
+    const { process_name, domain, description, versions } = this.processDetail;
 
     return html`
       <div class="versions-header">
@@ -849,6 +850,21 @@ export class AdCatalogView extends LitElement {
             Domain: ${domain ?? 'No domain'} · ${versions.length}
             version${versions.length === 1 ? '' : 's'}
           </div>
+          ${description
+            ? html`<div style="
+                font-size: 13px;
+                color: #9ca3af;
+                background: rgba(15, 23, 42, 0.6);
+                border: 1px solid rgba(55, 65, 81, 0.7);
+                border-radius: 8px;
+                padding: 8px 10px;
+                margin-top: 10px;
+                margin-bottom: 2px;
+                line-height: 1.5;
+              ">
+            ${description}
+          </div>`
+        : null}
         </div>
         <span class="pill">
           Manage versions: create/update description, publish or delete
@@ -894,11 +910,6 @@ export class AdCatalogView extends LitElement {
       <tr>
         <td>
           <div>${v.version_name || '—'}</div>
-          ${v.version_description
-            ? html`<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">
-                ${v.version_description}
-              </div>`
-            : null}
         </td>
         <td>
           <span class="version-status ${statusClass}">${v.status}</span>
@@ -958,6 +969,22 @@ export class AdCatalogView extends LitElement {
     return html`
       <div style="margin-top: 8px;">
         <div class="card-subtitle">Visual diagram representation</div>
+
+        ${v.version_description
+          ? html`<div style="
+              font-size: 13px;
+              color: #9ca3af;
+              background: rgba(15, 23, 42, 0.6);
+              border: 1px solid rgba(55, 65, 81, 0.7);
+              border-radius: 8px;
+              padding: 8px 10px;
+              margin-top: 6px;
+              margin-bottom: 4px;
+              line-height: 1.5;
+            ">
+              ${v.version_description}
+            </div>`
+          : null}
 
         ${v.prompt
           ? html`
