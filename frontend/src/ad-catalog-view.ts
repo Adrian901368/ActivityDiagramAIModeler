@@ -1,3 +1,4 @@
+// src/components/ad-catalog-view.ts
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
@@ -505,6 +506,26 @@ export class AdCatalogView extends LitElement {
       margin-top: 10px;
       flex-wrap: wrap;
     }
+
+    .process-edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(79, 70, 229, 0.4);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      margin-bottom: 4px;
+    }
+
+    .process-edit-form-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #818cf8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
   `;
 
   // Authenticated user email — set by the parent shell after login.
@@ -530,6 +551,13 @@ export class AdCatalogView extends LitElement {
   @state() private isDeletingAll = false;
   @state() private isDeletingProcess = false;
   @state() private isMutatingVersion = false;
+
+  // Inline process name/description editing
+  @state() private isEditingProcess = false;
+  @state() private editProcessNameInput = '';
+  @state() private editProcessDescriptionInput = '';
+  @state() private isSavingProcess = false;
+  @state() private processEditError = '';
 
   // Edit view state – description-based, backend regenerates PlantUML
   @state() private editMode: EditMode = null;
@@ -575,7 +603,6 @@ export class AdCatalogView extends LitElement {
         ) as any;
         if (!canvas) return;
 
-        // Prefer full canvas state snapshot over legacy prompt structure
         if (v.canvas_state && typeof canvas.setFullState === 'function') {
           canvas.setFullState(v.canvas_state);
         } else if (v.prompt && typeof canvas.setStructure === 'function') {
@@ -811,6 +838,13 @@ export class AdCatalogView extends LitElement {
       <div class="actions-row" style="justify-content: flex-end; margin-top:0">
         <button
           class="secondary"
+          @click=${this.onEditProcessClick}
+          ?disabled=${this.isMutatingVersion || this.isDeletingProcess}
+        >
+          Edit process
+        </button>
+        <button
+          class="secondary"
           @click=${this.onCreateVersionClick}
           ?disabled=${this.isMutatingVersion}
         >
@@ -864,12 +898,14 @@ export class AdCatalogView extends LitElement {
               ">
             ${description}
           </div>`
-        : null}
+            : null}
         </div>
         <span class="pill">
           Manage versions: create/update description, publish or delete
         </span>
       </div>
+
+      ${this.isEditingProcess ? this.renderProcessEditForm() : null}
 
       ${versions.length === 0
         ? html`<div class="placeholder small">
@@ -892,6 +928,67 @@ export class AdCatalogView extends LitElement {
 
             ${this.renderExpandedPlantuml()}
           `}
+    `;
+  }
+
+  private renderProcessEditForm() {
+    return html`
+      <div class="process-edit-form">
+        <div class="process-edit-form-title">Edit process metadata</div>
+
+        <div>
+          <label for="editProcessName">Process name</label>
+          <input
+            id="editProcessName"
+            type="text"
+            .value=${this.editProcessNameInput}
+            @input=${(e: Event) => {
+              this.editProcessNameInput = (e.target as HTMLInputElement).value;
+            }}
+            placeholder="Process name"
+            autocomplete="off"
+          />
+        </div>
+
+        <div>
+          <label for="editProcessDesc">
+            Description
+            <span style="font-size: 11px; font-weight: 400; color: #4b5563; margin-left: 5px;">optional</span>
+          </label>
+          <textarea
+            id="editProcessDesc"
+            .value=${this.editProcessDescriptionInput}
+            @input=${(e: Event) => {
+              this.editProcessDescriptionInput = (
+                e.target as HTMLTextAreaElement
+              ).value;
+            }}
+            placeholder="Short description of this process (optional)."
+            style="min-height: 80px;"
+          ></textarea>
+        </div>
+
+        ${this.processEditError
+          ? html`<div class="error small">${this.processEditError}</div>`
+          : null}
+
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+          <button
+            class="text"
+            @click=${this.onCancelEditProcessClick}
+            ?disabled=${this.isSavingProcess}
+          >
+            Cancel
+          </button>
+          <button
+            class="primary"
+            @click=${this.onSaveProcessClick}
+            ?disabled=${this.isSavingProcess || !this.editProcessNameInput.trim()}
+          >
+            ${this.isSavingProcess ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
     `;
   }
 
@@ -1012,7 +1109,6 @@ export class AdCatalogView extends LitElement {
               </div>
             `}
 
-        <!-- PlantUML code — hidden by default -->
         <div
           style="
             display: flex;
@@ -1051,13 +1147,11 @@ export class AdCatalogView extends LitElement {
     try {
       const parsed = typeof prompt === 'string' ? JSON.parse(prompt) : prompt;
 
-      // If saved from getStructure() directly (nodes/edges format from canvas)
       if (parsed.nodes || parsed.edges) {
         canvas.setStructure(parsed);
         return;
       }
 
-      // Fallback: legacy actors/actions format from LLM prompt
       if (Array.isArray(parsed.actors) && Array.isArray(parsed.actions)) {
         canvas.setStructure({
           actors: parsed.actors as string[],
@@ -1129,7 +1223,6 @@ export class AdCatalogView extends LitElement {
             />
           </div>
 
-          <!-- Version description — above Process description -->
           <div>
             <label for="editVersionDescription">
               ${this.editMode === 'update'
@@ -1286,6 +1379,8 @@ export class AdCatalogView extends LitElement {
 
   private onSelectProcess(process: CatalogProcess): void {
     this.selectedProcessId = process.id;
+    this.isEditingProcess = false;
+    this.processEditError = '';
     this.loadProcessDetail(process.id);
   }
 
@@ -1293,6 +1388,77 @@ export class AdCatalogView extends LitElement {
     this.expandedVersionId =
       this.expandedVersionId === versionId ? null : versionId;
     this.isDetailCodeExpanded = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handlers: inline process edit
+  // ---------------------------------------------------------------------------
+
+  private onEditProcessClick(): void {
+    if (!this.processDetail) return;
+    this.editProcessNameInput = this.processDetail.process_name;
+    this.editProcessDescriptionInput = this.processDetail.description ?? '';
+    this.processEditError = '';
+    this.isEditingProcess = true;
+  }
+
+  private onCancelEditProcessClick(): void {
+    this.isEditingProcess = false;
+    this.processEditError = '';
+  }
+
+  private async onSaveProcessClick(): Promise<void> {
+    if (!this.processDetail) return;
+
+    const name = this.editProcessNameInput.trim();
+    if (!name) {
+      this.processEditError = 'Process name must not be empty.';
+      return;
+    }
+
+    this.isSavingProcess = true;
+    this.processEditError = '';
+
+    try {
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.authHeaders(),
+          },
+          body: JSON.stringify({
+            name,
+            description: this.editProcessDescriptionInput.trim() || null,
+          }),
+        }
+      );
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(
+          `Backend returned status ${resp.status}${text ? ` – ${text.slice(0, 200)}` : ''}`
+        );
+      }
+
+      const updated = (await resp.json()) as CatalogProcessDetail;
+      this.processDetail = updated;
+      this.isEditingProcess = false;
+
+      // Reflect updated name in the left-column list immediately
+      this.processes = this.processes.map((p) =>
+        p.id === updated.process_id ? { ...p, name: updated.process_name } : p
+      );
+    } catch (error: unknown) {
+      console.error('Failed to update process', error);
+      this.processEditError =
+        error instanceof Error
+          ? `Failed to update process: ${error.message}`
+          : 'Failed to update process.';
+    } finally {
+      this.isSavingProcess = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1311,6 +1477,7 @@ export class AdCatalogView extends LitElement {
       this.selectedProcessId = null;
       this.processDetail = null;
       this.expandedVersionId = null;
+      this.isEditingProcess = false;
       await this.loadProcesses();
     } catch (error: unknown) {
       console.error('Failed to delete all processes', error);
@@ -1341,6 +1508,7 @@ export class AdCatalogView extends LitElement {
       this.selectedProcessId = null;
       this.processDetail = null;
       this.expandedVersionId = null;
+      this.isEditingProcess = false;
       await this.loadProcesses();
     } catch (error: unknown) {
       console.error('Failed to delete process', error);
@@ -1417,7 +1585,6 @@ export class AdCatalogView extends LitElement {
 
     const versions = this.processDetail.versions;
 
-    // Prefer active version; otherwise newest by created_at
     const base =
       versions.find((v) => v.status === 'active') ??
       [...versions].sort(
@@ -1452,7 +1619,6 @@ export class AdCatalogView extends LitElement {
     this.editProcessName = this.processDetail?.process_name ?? '';
     this.editVersionNumber = v.version_number;
     this.editVersionLabel = v.version_name;
-    // Pre-fill version description from existing version
     this.editVersionDescription = v.version_description ?? '';
     this.editDescriptionOriginal = '';
     this.editDescriptionCurrent = '';
@@ -1502,13 +1668,11 @@ export class AdCatalogView extends LitElement {
     ) as any;
     if (!canvas) return;
 
-    // Prefer saved pixel-perfect state over recalculated layout
     if (canvasState && typeof canvas.setFullState === 'function') {
       canvas.setFullState(canvasState);
       return;
     }
 
-    // Fallback: rebuild layout from prompt structure
     if (typeof canvas.setStructure === 'function') {
       if (prompt && Array.isArray(prompt.actors) && Array.isArray(prompt.actions)) {
         canvas.setStructure({
@@ -1634,7 +1798,6 @@ export class AdCatalogView extends LitElement {
       this.editPromptJson = {};
     }
 
-    // Get canvas state snapshot from edit view canvas
     const editCanvas = this.renderRoot?.querySelector(
       'ad-canvas-editor:not([data-version-id])'
     ) as any;
@@ -1673,7 +1836,6 @@ export class AdCatalogView extends LitElement {
       plantuml_code: code,
       prompt: this.editPromptJson ?? {},
       canvas_state: canvasState,
-      // Include version description in every save/update request
       version_description: this.editVersionDescription.trim() || null,
     };
 
@@ -1699,7 +1861,6 @@ export class AdCatalogView extends LitElement {
       this.editGeneratedPlantuml = version.plantuml_code;
       this.editVersionNumber = version.version_number;
       this.editVersionLabel = version.version_name;
-      // Sync description back from saved version
       this.editVersionDescription = version.version_description ?? '';
       this.editPromptJson = version.prompt ?? null;
       this.editPromptText =
