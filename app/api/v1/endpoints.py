@@ -89,6 +89,16 @@ class TextGenerateInput(BaseModel):
     )
 
 
+class UpdateProcessInput(BaseModel):
+    """Payload for updating process name and/or description."""
+
+    name: str = Field(..., min_length=1, max_length=200, description="New process name")
+    description: Optional[str] = Field(
+        default=None,
+        description="Updated process description (null clears it)",
+    )
+
+
 def _build_process_structure_from_structured_dict(
     structured: Dict[str, Any],
 ) -> ProcessStructureInput:
@@ -123,7 +133,6 @@ def _build_process_structure_from_structured_dict(
         yes = (item.get("branch_yes") or "").strip()
         no = (item.get("branch_no") or "").strip()
 
-        # Accept both snake_case and camelCase / fallback variations
         yes_index_raw = (
             item.get("yes_action_index")
             if "yes_action_index" in item
@@ -135,7 +144,6 @@ def _build_process_structure_from_structured_dict(
             else item.get("noActionIndex")
         )
 
-        # Coerce indices to int | None, ignoring invalid values
         def _to_optional_int(value: Any) -> Optional[int]:
             if value is None:
                 return None
@@ -154,8 +162,6 @@ def _build_process_structure_from_structured_dict(
                 "branch_no": no,
             }
 
-            # Only include indices if they are not None.
-            # Range validity is checked later by ProcessStructureInput validator.
             if yes_index is not None:
                 decision_dict["yes_action_index"] = yes_index
             if no_index is not None:
@@ -163,8 +169,6 @@ def _build_process_structure_from_structured_dict(
 
             decisions.append(decision_dict)
 
-    # For now we do not map parallel_branches into ParallelBlock structures.
-    # This can be extended later when the visual editor supports parallel flows.
     parallel_blocks = None
     if raw_parallel:
         parallel_blocks = None
@@ -730,7 +734,6 @@ async def save_generated_version(
             llm_model=settings.llm.model,
             tokens_used=None,
             version_name=version_name,
-            # ✅ version_description comes from payload (initialVersionDescription on frontend)
             version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
@@ -840,6 +843,73 @@ async def get_process_catalog(
         query = query.filter(Version.status == status)
 
     versions = query.all()
+    version_items = [
+        CatalogVersion(
+            id=v.id,
+            process_id=v.process_id,
+            version_number=v.version_number,
+            version_name=v.version_name or "",
+            version_description=v.version_description,
+            created_at=v.created_at,
+            llm_model=v.llm_model,
+            tokens_used=v.tokens_used,
+            status=v.status,
+            plantuml_code=v.plantuml_code,
+            image_path=v.image_path,
+            prompt=v.prompt,
+            canvas_state=v.canvas_state,
+        )
+        for v in versions
+    ]
+
+    return CatalogProcessDetail(
+        process_id=process.id,
+        process_name=process.name,
+        domain=process.domain,
+        description=process.description,
+        versions=version_items,
+    )
+
+
+@router.patch(
+    "/catalog/{process_id}",
+    response_model=CatalogProcessDetail,
+    responses={404: {"model": ErrorResponse}},
+    summary="Update process name and/or description",
+    tags=["catalog"],
+)
+async def update_process(
+    process_id: int,
+    payload: UpdateProcessInput,
+    db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
+) -> CatalogProcessDetail:
+    """
+    Update the name and/or description of an existing process.
+    Only the owner of the process can update it.
+    """
+    process = (
+        db.query(Process)
+        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .first()
+    )
+    if process is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process with id {process_id} not found.",
+        )
+
+    process.name = payload.name.strip()
+    process.description = payload.description
+    db.commit()
+    db.refresh(process)
+
+    versions = (
+        db.query(Version)
+        .filter(Version.process_id == process.id)
+        .order_by(Version.version_number.desc())
+        .all()
+    )
     version_items = [
         CatalogVersion(
             id=v.id,
@@ -1012,7 +1082,6 @@ async def update_draft_process_version(
             detail=f"PlantUML validation failed before save: {error_msg}",
         )
 
-    # Keep existing version name if none is provided — resolved inside service
     new_version_name = version_name
 
     try:

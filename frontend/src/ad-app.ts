@@ -190,14 +190,12 @@ export class AdApp extends LitElement {
       resize: vertical;
     }
 
-    /* Two-column layout for optional description fields */
     .descriptions-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 12px;
     }
 
-    /* Description textareas are shorter than the main text prompt */
     .descriptions-grid textarea {
       min-height: 80px;
     }
@@ -492,9 +490,51 @@ export class AdApp extends LitElement {
     }
   `;
 
-  // Persist login across refreshes — read from sessionStorage on init
-  @state() private userEmail: string =
-    sessionStorage.getItem('ad_user_email') ?? '';
+  // ---------------------------------------------------------------------------
+  // Session resolution — persists on reload, clears on fresh open / Safari restore
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Reads the stored email from sessionStorage only if the current navigation
+   * is a page reload or back/forward traversal.
+   *
+   * On a fresh "navigate" load (new tab, typing URL, or Safari session restore
+   * after closing the browser) the stored value is discarded so the user is
+   * required to log in again.
+   *
+   * PerformanceNavigationTiming.type values:
+   *   "navigate"     — fresh open, link click, URL typed
+   *   "reload"       — F5 / Cmd+R
+   *   "back_forward" — browser history arrows
+   *   "prerender"    — prerendered page
+   */
+  private static resolveInitialEmail(): string {
+    const stored = sessionStorage.getItem('ad_user_email');
+    if (!stored) return '';
+
+    try {
+      const entries = performance.getEntriesByType(
+        'navigation'
+      ) as PerformanceNavigationTiming[];
+      const navType = entries[0]?.type;
+
+      // Only keep session when the user explicitly refreshed or used history
+      if (navType === 'navigate' || navType === 'prerender') {
+        sessionStorage.removeItem('ad_user_email');
+        return '';
+      }
+    } catch {
+      // Performance API unavailable — keep session as safe fallback
+    }
+
+    return stored;
+  }
+
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
+
+  @state() private userEmail: string = AdApp.resolveInitialEmail();
 
   @state() private view: View = 'generate';
 
@@ -502,9 +542,7 @@ export class AdApp extends LitElement {
   @state() private domain = '';
   @state() private versionName = '';
   @state() private processText = '';
-  // Optional: human-readable description of the process (saved to DB)
   @state() private processDescription = '';
-  // Optional: description of the initial version (saved to DB as version_description)
   @state() private initialVersionDescription = '';
 
   @state() private isGenerating = false;
@@ -637,7 +675,6 @@ export class AdApp extends LitElement {
                 </div>
               </div>
 
-              <!-- Row 1: process name / domain / version label -->
               <div class="meta-grid">
                 <div>
                   <label for="processName">Process Name</label>
@@ -674,7 +711,6 @@ export class AdApp extends LitElement {
                 </div>
               </div>
 
-              <!-- Row 2: process description + initial version description (side by side) -->
               <div class="descriptions-grid">
                 <div>
                   <label for="processDescription">
@@ -702,7 +738,6 @@ export class AdApp extends LitElement {
                 </div>
               </div>
 
-              <!-- Row 3: text prompt -->
               <div>
                 <label for="processText">Text Prompt</label>
                 <textarea
@@ -761,7 +796,6 @@ export class AdApp extends LitElement {
                 : null}
             </section>
 
-            <!-- CANVAS EDITOR -->
             <section class="card">
               <div class="card-header">
                 <div>
@@ -784,7 +818,6 @@ export class AdApp extends LitElement {
               </div>
             </section>
 
-            <!-- EXPANDABLE PLANTUML -->
             <section class="card">
               <div class="diagram-header" style="margin-bottom: 0;">
                 <div>
@@ -1085,7 +1118,6 @@ export class AdApp extends LitElement {
     const version = this.versionName.trim();
     const code = this.plantuml.trim();
     const processDesc = this.processDescription.trim();
-    // ✅ version_description is now included in the JSON payload
     const versionDesc = this.initialVersionDescription.trim();
 
     this.errorMessage = '';
@@ -1127,7 +1159,6 @@ export class AdApp extends LitElement {
         plantuml_code: code,
         prompt: promptForSave,
         canvas_state: canvasState,
-        // ✅ sent to backend → NewVersionInput.version_description → Version.version_description
         version_description: versionDesc || null,
       };
 
