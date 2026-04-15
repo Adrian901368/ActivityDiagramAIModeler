@@ -229,7 +229,7 @@ class CatalogProcessDetail(BaseModel):
     process_id: int
     process_name: str
     domain: Optional[str] = None
-    # ✅ Process-level description shown under the process name in the catalog detail view
+    # Process-level description shown under the process name in the catalog detail view.
     description: Optional[str] = None
     versions: List[CatalogVersion]
 

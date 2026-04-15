@@ -9,7 +9,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     JSON,
-    UniqueConstraint,
 )
 
 from sqlalchemy.orm import declarative_base, relationship
@@ -23,23 +22,19 @@ class Process(Base):
 
     Table `processes` (SQLite):
 
-    - id INTEGER PRIMARY KEY
-    - name VARCHAR(255) NOT NULL
-    - domain VARCHAR(100) NULL
-    - description TEXT NULL
-    - owner_email VARCHAR(255) NOT NULL (ties process to a specific user account)
+    - id            INTEGER PRIMARY KEY
+    - name          VARCHAR(255) NOT NULL
+    - domain        VARCHAR(100) NULL
+    - description   TEXT NULL
+    - owner_email   VARCHAR(255) NOT NULL
 
-    NOTE: name is no longer globally unique — uniqueness is scoped per
-    (name, domain, owner_email) so different users can have same-named processes.
+    NOTE: Multiple processes with the same name can exist for the same user.
+    Process identity is determined solely by the auto-incremented primary key (id).
+    There is intentionally NO unique constraint on (name, domain, owner_email)
+    because a user must be able to create two separate processes with the same name.
     """
 
     __tablename__ = "processes"
-    __table_args__ = (
-        UniqueConstraint(
-            "name", "domain", "owner_email",
-            name="uq_process_name_domain_owner",
-        ),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
@@ -61,20 +56,20 @@ class Version(Base):
 
     Table `versions` (SQLite):
 
-    - id INTEGER PRIMARY KEY
-    - process_id INTEGER NOT NULL (FK -> processes.id)
-    - version_number INTEGER NOT NULL
-    - version_name VARCHAR NULL / "" (human-readable version label)
-    - version_description TEXT NULL (optional notes about this specific version)
-    - owner_email VARCHAR(255) NULL (denormalized for quick per-user queries)
-    - plantuml_code TEXT NOT NULL
-    - prompt JSON NOT NULL (structured input / metadata)
-    - llm_model VARCHAR(100) NOT NULL
-    - tokens_used INTEGER NULL
-    - status VARCHAR(20) NOT NULL DEFAULT 'draft'
-    - created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    - image_path VARCHAR(255) NULL (path to rendered PNG diagram, optional)
-    - canvas_state JSON NULL (full canvas layout snapshot for exact restore)
+    - id                  INTEGER PRIMARY KEY
+    - process_id          INTEGER NOT NULL (FK -> processes.id)
+    - version_number      INTEGER NOT NULL
+    - version_name        VARCHAR NULL / ""
+    - version_description TEXT NULL
+    - owner_email         VARCHAR(255) NULL
+    - plantuml_code       TEXT NOT NULL
+    - prompt              JSON NOT NULL
+    - llm_model           VARCHAR(100) NOT NULL
+    - tokens_used         INTEGER NULL
+    - status              VARCHAR(20) NOT NULL DEFAULT 'draft'
+    - created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    - image_path          VARCHAR(255) NULL
+    - canvas_state        JSON NULL
     """
 
     __tablename__ = "versions"

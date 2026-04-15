@@ -8,7 +8,7 @@ from app.core.schemas import ProcessInCatalog
 from app.database.models import Process, Version
 
 
-def get_or_create_process(
+def create_process(
     db: Session,
     name: str,
     domain: str | None = None,
@@ -16,32 +16,19 @@ def get_or_create_process(
     owner_email: str | None = None,
 ) -> Process:
     """
-    Find existing Process by (name, domain, owner_email) or create a new one.
-    If process already exists and description was empty, update it.
+    Always create a brand-new Process record.
+
+    Process identity is determined solely by the auto-incremented primary key.
+    Two processes may share the same name — that is intentional and expected.
     """
-    process = (
-        db.query(Process)
-        .filter(
-            Process.name == name,
-            Process.domain == domain,
-            Process.owner_email == owner_email,
-        )
-        .first()
+    process = Process(
+        name=name,
+        domain=domain,
+        description=description,
+        owner_email=owner_email,
     )
-
-    if process is None:
-        process = Process(
-            name=name,
-            domain=domain,
-            description=description,
-            owner_email=owner_email,
-        )
-        db.add(process)
-        db.flush()
-    elif description and not process.description:
-        process.description = description
-        db.flush()
-
+    db.add(process)
+    db.flush()
     return process
 
 
@@ -61,12 +48,15 @@ def save_process_version(
     version_description: str | None = None,
 ) -> Version:
     """
-    Find or create Process by (name, domain, owner_email) and save a new Version.
-    If version_name is not provided, it is generated automatically
-    as 'vX' where X is the new version_number.
+    Always create a new Process and save its first Version (v1).
+
+    This function is called exclusively from the /catalog/save endpoint,
+    which always represents the user saving a brand-new process for the
+    first time. Adding a version to an existing process is handled
+    separately by create_new_version_for_process().
     """
-    # 1) find or create process
-    process = get_or_create_process(
+    # 1) Always create a new process — never reuse an existing one by name
+    process = create_process(
         db=db,
         name=process_name,
         domain=domain,
@@ -74,21 +64,12 @@ def save_process_version(
         owner_email=owner_email,
     )
 
-    # 2) find latest version_number for this process
-    latest_number = (
-        db.query(func.max(Version.version_number))
-        .filter(Version.process_id == process.id)
-        .scalar()
-        or 0
-    )
-
-    new_number = latest_number + 1
-
-    # 3) generate default version_name if not provided
+    # 2) First version of a new process is always v1
+    new_number = 1
     if not version_name:
         version_name = f"v{new_number}"
 
-    # 4) create and persist Version
+    # 3) Create and persist Version
     version = Version(
         process_id=process.id,
         version_number=new_number,
@@ -170,7 +151,6 @@ def delete_process_with_versions(
     if process is None:
         return False
 
-    db.query(Version).filter(Version.process_id == process_id).delete()
     db.delete(process)
     db.commit()
 
@@ -191,7 +171,7 @@ def create_new_version_for_process(
     version_description: str | None = None,
 ) -> Version:
     """
-    Create a new Version row for an existing process.
+    Create a new Version row for an existing process identified by process_id.
 
     Verifies that the process belongs to owner_email before proceeding.
     version_number is auto-incremented (max + 1).
@@ -214,6 +194,9 @@ def create_new_version_for_process(
     next_version_number = (
         1 if last_version is None else last_version.version_number + 1
     )
+
+    if not version_name:
+        version_name = f"v{next_version_number}"
 
     new_version = Version(
         process_id=process_id,
