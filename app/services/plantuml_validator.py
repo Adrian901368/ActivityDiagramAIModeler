@@ -41,7 +41,7 @@ def _basic_semantic_checks(code: str) -> Tuple[bool, Optional[str]]:
         return False, "More 'endif' than 'if' keywords found in PlantUML code."
     # We do not fail when if_count > endif_count here, because sometimes
     # style variations (e.g. if/else without explicit endif) are used.
-    # Such cases are better caught by the PlantUML server itself.
+    # Such cases are better caught by the PlantUML server itself during render.
 
     return True, None
 
@@ -50,64 +50,59 @@ def validate_plantuml(code: str) -> Tuple[bool, Optional[str]]:
     """
     Returns (is_valid, error_message).
 
-    - (True, None) -> syntax OK (or we skipped validation due to server error)
-    - (False, "reason message") -> we consider this a validation failure
+    - (True, None)            -> local checks passed
+    - (False, "reason msg")   -> local check failed
 
-    Validation has two layers:
+    Validation is intentionally local-only (no remote HTTP call).
+    Reasons:
+    - The remote PlantUML server is also called during render (save step),
+      so a second HTTP round-trip here would be redundant and slow.
+    - The public plantuml.com server enforces rate limits (HTTP 509)
+      which would block generation even for valid diagrams.
 
-    1) Local, cheap checks:
-       - presence of @startuml/@enduml
-       - basic semantic checks on actions and if/endif balance
-
-    2) Remote check via PlantUML server:
-       - encode code and ask server to render PNG
-       - HTTP 200 => syntax OK
-       - HTTP 5xx => treat as server problem, do NOT block generation
-       - HTTP 4xx/other => treat as syntax/validation error
+    Local checks performed:
+    1) Presence of @startuml / @enduml markers.
+    2) At least one action node (': ... ;').
+    3) Approximate if/endif balance.
     """
     if not code or "@startuml" not in code or "@enduml" not in code:
         return False, "Missing @startuml/@enduml in PlantUML code."
 
-    # 1) Local semantic checks
     ok, msg = _basic_semantic_checks(code)
     if not ok:
         return False, msg
 
-    # 2) Remote syntax check using PlantUML server
-    encoded = _encode_hex(code)
-    base = PLANTUML_SERVER_BASE.rstrip("/")
-    url = f"{base}/png/{encoded}"
-
-    try:
-        resp = requests.get(url, timeout=10)
-    except Exception as exc:
-        # Server not available -> do not block generation, just report info
-        return True, f"Skipped syntax validation (PlantUML server error: {exc})"
-
-    if resp.status_code == 200:
-        # Server successfully rendered PNG -> syntax is OK
-        return True, None
-
-    if 500 <= resp.status_code < 600:
-        # Server-side error (e.g. 509) -> syntax is probably OK, server has a problem
-        return True, f"Skipped syntax validation (PlantUML server HTTP {resp.status_code})"
-
-    # 4xx or other suspicious codes -> treat as error
-    return False, f"PlantUML server HTTP {resp.status_code}"
+    return True, None
 
 
-def render_plantuml_to_png(code: str, output_dir: str = "generated_diagrams") -> str:
+def render_plantuml_to_png(code: str, output_dir: str = "generated_diagrams") -> Optional[str]:
     """
     Render valid PlantUML code to PNG using PlantUML server and save it to disk.
 
-    Returns filesystem path to the saved PNG file.
+    SHA1-based file cache: if a PNG for this exact PlantUML source already
+    exists on disk, it is returned immediately without any HTTP request.
+    This eliminates redundant server calls when the same diagram is saved
+    multiple times (e.g. after re-opening from catalog).
+
+    Returns:
+    - Filesystem path to the saved (or cached) PNG file on success.
+    - None if the PlantUML server is temporarily unavailable (5xx / network
+      error), so that callers can proceed without a PNG rather than failing.
 
     Raises:
     - ValueError: if @startuml/@enduml are missing in the input code.
-    - RuntimeError: if the PlantUML server or local file I/O fails.
+    - RuntimeError: if local file I/O fails after a successful server response.
     """
     if not code or "@startuml" not in code or "@enduml" not in code:
         raise ValueError("Missing @startuml/@enduml in PlantUML code.")
+
+    digest = hashlib.sha1(code.encode("utf-8")).hexdigest()[:16]
+    filename = f"diagram_{digest}.png"
+    filepath = os.path.join(output_dir, filename)
+
+    # Return cached PNG immediately — no HTTP call needed
+    if os.path.exists(filepath):
+        return filepath
 
     encoded = _encode_hex(code)
     base = PLANTUML_SERVER_BASE.rstrip("/")
@@ -115,17 +110,19 @@ def render_plantuml_to_png(code: str, output_dir: str = "generated_diagrams") ->
 
     try:
         resp = requests.get(url, timeout=20)
-    except Exception as exc:
-        raise RuntimeError(f"PlantUML server error: {exc}") from exc
+    except Exception:
+        # Network error -> skip PNG rendering, do not block save
+        return None
+
+    if 500 <= resp.status_code < 600:
+        # Server-side error (e.g. 509 Bandwidth Limit) -> skip PNG, do not block save
+        return None
 
     if resp.status_code != 200:
+        # 4xx or unexpected -> real error, diagram may be invalid
         raise RuntimeError(f"PlantUML server HTTP {resp.status_code}")
 
     os.makedirs(output_dir, exist_ok=True)
-
-    digest = hashlib.sha1(code.encode("utf-8")).hexdigest()[:16]
-    filename = f"diagram_{digest}.png"
-    filepath = os.path.join(output_dir, filename)
 
     try:
         with open(filepath, "wb") as f:
