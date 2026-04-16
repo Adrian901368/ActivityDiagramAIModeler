@@ -4,6 +4,7 @@ import { customElement, state } from 'lit/decorators.js';
 import './ad-login-view';
 import './ad-catalog-view';
 import './ad-canvas-editor';
+import './ad-public-catalog-view';
 
 interface CatalogProcess {
   id: number;
@@ -12,7 +13,7 @@ interface CatalogProcess {
   versions_count: number;
 }
 
-type View = 'generate' | 'catalog';
+type View = 'generate' | 'catalog' | 'public';
 
 @customElement('ad-app')
 export class AdApp extends LitElement {
@@ -84,6 +85,50 @@ export class AdApp extends LitElement {
       font-size: 15px;
       color: #9ca3af;
       line-height: 1.5;
+    }
+
+    /* Nav tabs */
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(55, 65, 81, 0.8);
+      border-radius: 999px;
+      padding: 4px;
+    }
+
+    .nav-tab {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 16px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      color: #6b7280;
+      background: transparent;
+      transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .nav-tab:hover:not(.active) {
+      color: #d1d5db;
+      background: rgba(55, 65, 81, 0.4);
+    }
+
+    .nav-tab.active {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #e5e7eb;
+      box-shadow: 0 2px 12px rgba(79, 70, 229, 0.5);
+    }
+
+    .nav-tab.public-tab.active {
+      background: linear-gradient(135deg, #0369a1, #0284c7);
+      box-shadow: 0 2px 12px rgba(3, 105, 161, 0.5);
     }
 
     .layout {
@@ -491,23 +536,9 @@ export class AdApp extends LitElement {
   `;
 
   // ---------------------------------------------------------------------------
-  // Session resolution — persists on reload, clears on fresh open / Safari restore
+  // Session resolution
   // ---------------------------------------------------------------------------
 
-  /**
-   * Reads the stored email from sessionStorage only if the current navigation
-   * is a page reload or back/forward traversal.
-   *
-   * On a fresh "navigate" load (new tab, typing URL, or Safari session restore
-   * after closing the browser) the stored value is discarded so the user is
-   * required to log in again.
-   *
-   * PerformanceNavigationTiming.type values:
-   *   "navigate"     — fresh open, link click, URL typed
-   *   "reload"       — F5 / Cmd+R
-   *   "back_forward" — browser history arrows
-   *   "prerender"    — prerendered page
-   */
   private static resolveInitialEmail(): string {
     const stored = sessionStorage.getItem('ad_user_email');
     if (!stored) return '';
@@ -518,7 +549,6 @@ export class AdApp extends LitElement {
       ) as PerformanceNavigationTiming[];
       const navType = entries[0]?.type;
 
-      // Only keep session when the user explicitly refreshed or used history
       if (navType === 'navigate' || navType === 'prerender') {
         sessionStorage.removeItem('ad_user_email');
         return '';
@@ -616,10 +646,70 @@ export class AdApp extends LitElement {
         <ad-login-view @login-success=${this.onLoginSuccess}></ad-login-view>
       `;
     }
-    return this.view === 'generate'
-      ? this.renderGenerateView()
-      : this.renderCatalogView();
+
+    switch (this.view) {
+      case 'catalog':
+        return this.renderCatalogView();
+      case 'public':
+        return this.renderPublicCatalogView();
+      default:
+        return this.renderGenerateView();
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Shared header helpers
+  // ---------------------------------------------------------------------------
+
+  private renderNavTabs() {
+    return html`
+      <div class="nav-tabs">
+        <button
+          class="nav-tab ${this.view === 'generate' ? 'active' : ''}"
+          @click=${() => this.onNavTabClick('generate')}
+        >
+          Generator
+        </button>
+        <button
+          class="nav-tab ${this.view === 'catalog' ? 'active' : ''}"
+          @click=${() => this.onNavTabClick('catalog')}
+        >
+          My catalog
+        </button>
+        <button
+          class="nav-tab public-tab ${this.view === 'public' ? 'active' : ''}"
+          @click=${() => this.onNavTabClick('public')}
+        >
+          Public catalog
+        </button>
+      </div>
+    `;
+  }
+
+  private renderUserChip() {
+    if (!this.isLoggedIn) return null;
+    return html`
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="user-chip">
+          <span class="user-chip-dot"></span>
+          <span class="user-chip-email" title=${this.userEmail}>
+            ${this.userEmail}
+          </span>
+        </div>
+        <button
+          class="danger"
+          style="font-size: 12px; padding: 6px 12px;"
+          @click=${this.onLogoutClick}
+        >
+          Log out
+        </button>
+      </div>
+    `;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Views
+  // ---------------------------------------------------------------------------
 
   private renderGenerateView() {
     return html`
@@ -633,12 +723,15 @@ export class AdApp extends LitElement {
               </div>
               <h1>AI-supported UML activity diagram Modeling Tool and Catalog</h1>
             </div>
-            ${this.renderUserChip()}
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              ${this.renderNavTabs()}
+              ${this.renderUserChip()}
+            </div>
           </div>
           <p class="subtitle">
             Describe a process in natural language and let the model generate a
-            UML activity diagram. You can store multiple versions
-            per process and domain.
+            UML activity diagram. You can store multiple versions per process
+            and domain.
           </p>
         </header>
 
@@ -653,8 +746,7 @@ export class AdApp extends LitElement {
               </div>
               <button
                 class="text"
-                @click=${this.onEnterCatalogClick}
-                ?disabled=${this.view === 'catalog'}
+                @click=${() => this.onNavTabClick('catalog')}
               >
                 Open full catalog
               </button>
@@ -868,15 +960,13 @@ export class AdApp extends LitElement {
               <h1>Catalog of generated activity diagrams</h1>
             </div>
             <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <button class="secondary" @click=${this.onBackToGenerateClick}>
-                Back to generator
-              </button>
+              ${this.renderNavTabs()}
               ${this.renderUserChip()}
             </div>
           </div>
           <p class="subtitle">
-            Browse processes, their versions and inspect PlantUML code for each
-            activity diagram.
+            Browse your processes, manage version history and inspect PlantUML
+            code for each activity diagram.
           </p>
         </header>
 
@@ -885,23 +975,35 @@ export class AdApp extends LitElement {
     `;
   }
 
-  private renderUserChip() {
-    if (!this.isLoggedIn) return null;
+  private renderPublicCatalogView() {
     return html`
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div class="user-chip">
-          <span class="user-chip-dot"></span>
-          <span class="user-chip-email" title=${this.userEmail}>
-            ${this.userEmail}
-          </span>
-        </div>
-        <button
-          class="danger"
-          style="font-size: 12px; padding: 6px 12px;"
-          @click=${this.onLogoutClick}
-        >
-          Log out
-        </button>
+      <div class="page">
+        <header>
+          <div class="title-row">
+            <div>
+              <div class="badge" style="color: #7dd3fc;">
+                <span
+                  class="badge-dot"
+                  style="background: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.7);"
+                ></span>
+                Public Catalog
+              </div>
+              <h1>Public process catalog</h1>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              ${this.renderNavTabs()}
+              ${this.renderUserChip()}
+            </div>
+          </div>
+          <p class="subtitle">
+            Browse publicly shared UML activity diagrams contributed by all
+            users. You can explore any published process and its versions.
+          </p>
+        </header>
+
+        <ad-public-catalog-view
+          .userEmail=${this.userEmail}
+        ></ad-public-catalog-view>
       </div>
     `;
   }
@@ -932,7 +1034,10 @@ export class AdApp extends LitElement {
         )}
       </ul>
       <div class="catalog-actions">
-        <button class="secondary full-width" @click=${this.onEnterCatalogClick}>
+        <button
+          class="secondary full-width"
+          @click=${() => this.onNavTabClick('catalog')}
+        >
           Enter Catalog
         </button>
       </div>
@@ -966,6 +1071,14 @@ export class AdApp extends LitElement {
     this.promptText = '';
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
+
+  private onNavTabClick(view: View): void {
+    this.view = view;
   }
 
   // ---------------------------------------------------------------------------
@@ -1197,7 +1310,7 @@ export class AdApp extends LitElement {
   }
 
   // ---------------------------------------------------------------------------
-  // Navigation & misc handlers
+  // Misc handlers
   // ---------------------------------------------------------------------------
 
   private onClearClick(): void {
@@ -1210,14 +1323,6 @@ export class AdApp extends LitElement {
     this.lastSaveSucceeded = false;
     this.lastPrompt = null;
     this.promptText = '';
-  }
-
-  private onEnterCatalogClick(): void {
-    this.view = 'catalog';
-  }
-
-  private onBackToGenerateClick(): void {
-    this.view = 'generate';
   }
 
   private onProcessClick(process: CatalogProcess): void {
