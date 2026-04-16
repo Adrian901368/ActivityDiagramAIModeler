@@ -48,6 +48,7 @@ interface PublicCatalogVersion {
   access: string;
 }
 
+// @ts-ignore
 interface PublicCatalogProcess {
   id: number;
   name: string;
@@ -1435,7 +1436,7 @@ export class AdCatalogView extends LitElement {
           </div>
 
           <div>
-            <label for="editDescription">Text Prompt</label>
+            <label for="editDescription">Prompt from Scratch</label>
             <textarea
               id="editDescription"
               .value=${this.editDescriptionCurrent}

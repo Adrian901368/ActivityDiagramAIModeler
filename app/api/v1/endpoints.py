@@ -687,15 +687,11 @@ async def list_processes(
 async def list_public_processes(
     name: str | None = Query(default=None, description="Substring of process name"),
     owner: str | None = Query(default=None, description="Substring of owner email"),
+    domain: str | None = Query(default=None, description="Substring of domain"),
     db: Session = Depends(get_db),
     _owner_email: str = Depends(get_current_user),
 ) -> List[PublicCatalogListItem]:
-    """
-    Return a lightweight list of all public processes with versions_count.
-    Every authenticated user can see these regardless of who created them.
-    Supports optional filtering by name and owner email substring.
-    """
-    return get_public_processes(db, name=name, owner=owner)
+    return get_public_processes(db, name=name, owner=owner, domain=domain)
 
 
 @router.get(

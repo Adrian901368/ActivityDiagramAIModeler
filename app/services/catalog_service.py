@@ -409,11 +409,8 @@ def get_public_processes(
     db: Session,
     name: Optional[str] = None,
     owner: Optional[str] = None,
+    domain: Optional[str] = None,
 ) -> List[PublicCatalogListItem]:
-    """
-    Return a lightweight list of all public processes with versions_count.
-    Supports optional substring filtering by name and owner_email.
-    """
     query = (
         db.query(
             Process.id,
@@ -438,6 +435,8 @@ def get_public_processes(
         query = query.filter(Process.name.ilike(f"%{name}%"))
     if owner:
         query = query.filter(Process.owner_email.ilike(f"%{owner}%"))
+    if domain:
+        query = query.filter(Process.domain.ilike(f"%{domain}%"))
 
     rows = query.order_by(Process.id.desc()).all()
     return [

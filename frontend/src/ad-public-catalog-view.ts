@@ -90,7 +90,7 @@ export class AdPublicCatalogView extends LitElement {
       font-size: 12px;
       color: #6b7280;
     }
-
+      
     .filters {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -607,7 +607,6 @@ export class AdPublicCatalogView extends LitElement {
         background 0.15s ease;
       text-align: left;
       width: 100%;
-      border-radius: 12px;
     }
 
     .clone-option:hover:not(:disabled) {
@@ -688,6 +687,7 @@ export class AdPublicCatalogView extends LitElement {
 
   @state() private nameFilter = '';
   @state() private ownerFilter = '';
+  @state() private domainFilter = ''; // ADDED
 
   @state() private processes: PublicCatalogListItem[] = [];
   @state() private isLoadingProcesses = false;
@@ -780,6 +780,7 @@ export class AdPublicCatalogView extends LitElement {
     const params = new URLSearchParams();
     if (this.nameFilter.trim()) params.append('name', this.nameFilter.trim());
     if (this.ownerFilter.trim()) params.append('owner', this.ownerFilter.trim());
+    if (this.domainFilter.trim()) params.append('domain', this.domainFilter.trim()); // ADDED
 
     const qs = params.toString();
     const url = qs
@@ -1050,7 +1051,7 @@ export class AdPublicCatalogView extends LitElement {
     return html`
       <div class="modal-overlay">
         <div class="modal modal-clone">
-          <div class="modal-title clone">📋 Clone process</div>
+          <div class="modal-title clone">Clone process</div>
           <div class="modal-body">
             Choose how to clone
             <strong>"${this.processDetail.name}"</strong>
@@ -1066,13 +1067,12 @@ export class AdPublicCatalogView extends LitElement {
               `
             : html`
                 <div class="clone-options">
-                  <!-- All versions option -->
                   <button
                     class="clone-option"
                     @click=${() => this.onConfirmClone('all_versions')}
                     ?disabled=${this.isCloningProcess}
                   >
-                    <div class="clone-option-icon">🗂</div>
+                    <div class="clone-option-icon"></div>
                     <div class="clone-option-content">
                       <div class="clone-option-title">All versions</div>
                       <div class="clone-option-desc">
@@ -1085,13 +1085,12 @@ export class AdPublicCatalogView extends LitElement {
                     </div>
                   </button>
 
-                  <!-- Active version only option -->
                   <button
                     class="clone-option"
                     @click=${() => this.onConfirmClone('active_only')}
                     ?disabled=${this.isCloningProcess || !hasActiveVersion}
                   >
-                    <div class="clone-option-icon">✅</div>
+                    <div class="clone-option-icon"></div>
                     <div class="clone-option-content">
                       <div class="clone-option-title">Active version only</div>
                       <div class="clone-option-desc">
@@ -1142,7 +1141,7 @@ export class AdPublicCatalogView extends LitElement {
     return html`
       <div class="modal-overlay">
         <div class="modal modal-delete">
-          <div class="modal-title delete">🗑 Delete public process</div>
+          <div class="modal-title delete">Delete public process</div>
           <div class="modal-body">
             Are you sure you want to permanently delete
             <strong>"${this.processDetail.name}"</strong> from the public
@@ -1166,7 +1165,7 @@ export class AdPublicCatalogView extends LitElement {
               @click=${this.onConfirmDelete}
               ?disabled=${this.isDeletingProcess}
             >
-              ${this.isDeletingProcess ? 'Deleting…' : '🗑 Delete permanently'}
+              ${this.isDeletingProcess ? 'Deleting…' : 'Delete permanently'}
             </button>
           </div>
         </div>
@@ -1195,6 +1194,17 @@ export class AdPublicCatalogView extends LitElement {
               .value=${this.nameFilter}
               @input=${this.onNameFilterChange}
               placeholder="Substring of process name"
+              autocomplete="off"
+            />
+          </div>
+          <div>
+            <label for="pubDomainFilter">Domain filter</label>
+            <input
+              id="pubDomainFilter"
+              type="text"
+              .value=${this.domainFilter}
+              @input=${this.onDomainFilterChange}
+              placeholder="Domain substring"
               autocomplete="off"
             />
           </div>
@@ -1352,7 +1362,6 @@ export class AdPublicCatalogView extends LitElement {
         <span class="pill blue">${versions.length} version(s)</span>
       </div>
 
-      <!-- Clone & Delete actions -->
       <div class="detail-actions-row">
         <button
           class="green"
@@ -1360,7 +1369,7 @@ export class AdPublicCatalogView extends LitElement {
           ?disabled=${this.isCloningProcess}
           title="Clone this process into your local catalog"
         >
-          📋 Clone to my catalog
+          Clone to my catalog
         </button>
 
         ${isOwner
@@ -1371,7 +1380,7 @@ export class AdPublicCatalogView extends LitElement {
                 ?disabled=${this.isDeletingProcess}
                 title="Delete this public process (you are the owner)"
               >
-                🗑 Delete
+                Delete
               </button>
             `
           : null}
@@ -1525,6 +1534,11 @@ export class AdPublicCatalogView extends LitElement {
 
   private onOwnerFilterChange(event: Event): void {
     this.ownerFilter = (event.target as HTMLInputElement).value;
+  }
+
+  // ADDED
+  private onDomainFilterChange(event: Event): void {
+    this.domainFilter = (event.target as HTMLInputElement).value;
   }
 
   private onReloadClick(): void {
