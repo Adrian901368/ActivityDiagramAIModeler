@@ -6,13 +6,6 @@ import './ad-catalog-view';
 import './ad-canvas-editor';
 import './ad-public-catalog-view';
 
-interface CatalogProcess {
-  id: number;
-  name: string;
-  domain: string | null;
-  versions_count: number;
-}
-
 type View = 'generate' | 'catalog' | 'public';
 
 @customElement('ad-app')
@@ -50,7 +43,26 @@ export class AdApp extends LitElement {
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .title-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1 1 0;
+      overflow: hidden;
+    }
+
+    .title-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
       flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .badge {
@@ -70,18 +82,22 @@ export class AdApp extends LitElement {
       border-radius: 999px;
       background: #4ade80;
       box-shadow: 0 0 12px rgba(74, 222, 128, 0.7);
+      flex-shrink: 0;
     }
 
     h1 {
-      font-size: clamp(28px, 3vw, 34px);
+      font-size: clamp(18px, 2.2vw, 30px);
       margin: 0;
       font-weight: 650;
       letter-spacing: 0.02em;
       color: #e5e7eb;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .subtitle {
-      max-width: 720px;
+      max-width: 860px;
       font-size: 15px;
       color: #9ca3af;
       line-height: 1.5;
@@ -131,17 +147,10 @@ export class AdApp extends LitElement {
       box-shadow: 0 2px 12px rgba(3, 105, 161, 0.5);
     }
 
-    .layout {
-      display: grid;
-      grid-template-columns: minmax(0, 0.6fr) minmax(0, 2fr);
-      gap: 24px;
-      align-items: flex-start;
-    }
-
-    @media (max-width: 900px) {
-      .layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
+    .main-column {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
     }
 
     .card {
@@ -155,16 +164,6 @@ export class AdApp extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 10px;
-    }
-
-    .sidebar {
-      min-height: 260px;
-    }
-
-    .main-column {
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
     }
 
     .card-header {
@@ -443,67 +442,6 @@ export class AdApp extends LitElement {
       margin-top: 4px;
     }
 
-    .process-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 360px;
-      overflow: auto;
-    }
-
-    .process-item {
-      padding: 8px 9px;
-      border-radius: 10px;
-      cursor: pointer;
-      transition:
-        background 0.12s ease,
-        transform 0.08s ease,
-        border-color 0.12s ease;
-      border: 1px solid transparent;
-    }
-
-    .process-item:hover {
-      background: rgba(15, 23, 42, 0.9);
-      border-color: rgba(55, 65, 81, 0.9);
-      transform: translateY(-1px);
-    }
-
-    .process-name {
-      font-size: 13px;
-      font-weight: 500;
-      color: #e5e7eb;
-    }
-
-    .process-meta {
-      font-size: 11px;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    .catalog-actions {
-      margin-top: 10px;
-    }
-
-    .catalog-header-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .pill {
-      font-size: 11px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(55, 65, 81, 0.9);
-      color: #9ca3af;
-    }
-
     .user-chip {
       display: inline-flex;
       align-items: center;
@@ -581,10 +519,6 @@ export class AdApp extends LitElement {
   @state() private errorMessage = '';
   @state() private lastSaveSucceeded = false;
 
-  @state() private processes: CatalogProcess[] = [];
-  @state() private isLoadingProcesses = false;
-  @state() private processesError = '';
-
   @state() private lastPrompt: any = null;
   @state() private promptText = '';
 
@@ -600,40 +534,6 @@ export class AdApp extends LitElement {
 
   private get isLoggedIn(): boolean {
     return this.userEmail.length > 0;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
-  override firstUpdated(): void {
-    if (this.isLoggedIn) this.loadProcesses();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Data loading
-  // ---------------------------------------------------------------------------
-
-  private async loadProcesses(): Promise<void> {
-    this.isLoadingProcesses = true;
-    this.processesError = '';
-    try {
-      const resp = await fetch(
-        'http://localhost:8000/api/v1/catalog/processes',
-        { headers: { ...this.authHeaders() } }
-      );
-      if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
-      const data = (await resp.json()) as CatalogProcess[];
-      this.processes = data.sort((a, b) => b.id - a.id);
-    } catch (error: unknown) {
-      console.error('Failed to load processes', error);
-      this.processesError =
-        error instanceof Error
-          ? `Failed to load processes: ${error.message}`
-          : 'Failed to load processes.';
-    } finally {
-      this.isLoadingProcesses = false;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -716,14 +616,14 @@ export class AdApp extends LitElement {
       <div class="page">
         <header>
           <div class="title-row">
-            <div>
+            <div class="title-left">
               <div class="badge">
                 <span class="badge-dot"></span>
-                UML Activity Catalog Generator
+                UML Activity Diagrams Generator
               </div>
-              <h1>AI-supported UML activity diagram Modeling Tool and Catalog</h1>
+              <h1>AI-supported UML activity diagram Modeling Tool<br/>and Catalog</h1>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="title-right">
               ${this.renderNavTabs()}
               ${this.renderUserChip()}
             </div>
@@ -731,217 +631,196 @@ export class AdApp extends LitElement {
           <p class="subtitle">
             Describe a process in natural language and let the model generate a
             UML activity diagram. You can store multiple versions per process
-            and domain.
+            or domain and share to public catalog. 
           </p>
         </header>
 
-        <div class="layout">
-          <aside class="card sidebar">
+        <div class="main-column">
+          <section class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">Processes in catalog</div>
+                <div class="card-title">Create a process</div>
                 <div class="card-subtitle">
-                  Existing processes with number of stored versions.
+                  Name the process, specify domain and describe the flow in
+                  text.
+                </div>
+              </div>
+            </div>
+
+            <div class="meta-grid">
+              <div>
+                <label for="processName">Process Name</label>
+                <input
+                  id="processName"
+                  type="text"
+                  .value=${this.processName}
+                  @input=${this.onProcessNameChange}
+                  placeholder="e.g. Course registration"
+                  autocomplete="off"
+                />
+              </div>
+              <div>
+                <label for="domain">Domain</label>
+                <input
+                  id="domain"
+                  type="text"
+                  .value=${this.domain}
+                  @input=${this.onDomainChange}
+                  placeholder="e.g. University"
+                  autocomplete="off"
+                />
+              </div>
+              <div>
+                <label for="versionName">Version Label</label>
+                <input
+                  id="versionName"
+                  type="text"
+                  .value=${this.versionName}
+                  @input=${this.onVersionNameChange}
+                  placeholder="e.g. v1 - initial draft"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <div class="descriptions-grid">
+              <div>
+                <label for="processDescription">
+                  Process description
+                  <span class="label-optional">optional</span>
+                </label>
+                <textarea
+                  id="processDescription"
+                  .value=${this.processDescription}
+                  @input=${this.onProcessDescriptionChange}
+                  placeholder="Brief description of process."
+                ></textarea>
+              </div>
+              <div>
+                <label for="initialVersionDescription">
+                  Initial Version Description
+                  <span class="label-optional">optional</span>
+                </label>
+                <textarea
+                  id="initialVersionDescription"
+                  .value=${this.initialVersionDescription}
+                  @input=${this.onInitialVersionDescriptionChange}
+                  placeholder="Notes about this specific version."
+                ></textarea>
+              </div>
+            </div>
+
+            <div>
+              <label for="processText">Prompt From Scratch</label>
+              <textarea
+                id="processText"
+                .value=${this.processText}
+                @input=${this.onTextChange}
+                placeholder="Describe the process step-by-step. Include actors, decisions, and important alternative or error flows."
+              ></textarea>
+            </div>
+
+            <div class="actions">
+              <div class="button-row">
+                <button
+                  class="primary"
+                  ?disabled=${this.isGenerating ||
+                  this.isSaving ||
+                  !this.processText.trim()}
+                  @click=${this.onGenerateClick}
+                >
+                  ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
+                </button>
+                <button
+                  class="secondary"
+                  ?disabled=${this.isSaving || !this.plantuml.trim()}
+                  @click=${this.onSaveClick}
+                >
+                  ${this.isSaving ? 'Saving…' : 'Save to catalog'}
+                </button>
+                <button
+                  class="text"
+                  ?disabled=${!this.plantuml && !this.processText}
+                  @click=${this.onClearClick}
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="status">
+                <span
+                  class="status-dot ${this.errorMessage
+                    ? 'error'
+                    : this.lastSaveSucceeded
+                    ? ''
+                    : 'pending'}"
+                  aria-hidden="true"
+                ></span>
+                ${this.errorMessage
+                  ? 'Last operation failed.'
+                  : this.lastSaveSucceeded
+                  ? 'Last save succeeded.'
+                  : 'Ready. Describe a process and generate a diagram.'}
+              </div>
+            </div>
+
+            ${this.errorMessage
+              ? html`<div class="error">${this.errorMessage}</div>`
+              : null}
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Visual canvas editor</div>
+                <div class="card-subtitle">
+                  Drag UML activity nodes between swimlanes and reorder them
+                  visually.
+                </div>
+              </div>
+            </div>
+
+            <ad-canvas-editor
+              @structure-change=${this.onCanvasStructureChange}
+            ></ad-canvas-editor>
+
+            <div class="hint">
+              Use the toolbar inside the canvas to add actions and arrange
+              them. The editor emits a structured representation compatible
+              with your backend model.
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="diagram-header" style="margin-bottom: 0;">
+              <div>
+                <div class="diagram-title">Generated PlantUML</div>
+                <div class="diagram-meta">
+                  Inspect the PlantUML generated code.
                 </div>
               </div>
               <button
-                class="text"
-                @click=${() => this.onNavTabClick('catalog')}
+                class="secondary"
+                style="font-size: 12px; padding: 6px 12px;"
+                ?disabled=${!this.plantuml}
+                @click=${this.onTogglePlantUmlClick}
               >
-                Open full catalog
+                ${this.isPlantUmlExpanded ? 'Hide code' : 'Show code'}
               </button>
             </div>
 
-            ${this.renderProcessesPanel()}
-          </aside>
-
-          <div class="main-column">
-            <section class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">Create a process</div>
-                  <div class="card-subtitle">
-                    Name the process, specify domain and describe the flow in
-                    text.
+            ${this.isPlantUmlExpanded
+              ? html`
+                  <div style="margin-top: 12px;">
+                    ${this.plantuml
+                      ? html`<pre>${this.plantuml}</pre>`
+                      : html`<div class="placeholder">
+                          Generated PlantUML code will appear here after you
+                          run generation.
+                        </div>`}
                   </div>
-                </div>
-              </div>
-
-              <div class="meta-grid">
-                <div>
-                  <label for="processName">Process Name</label>
-                  <input
-                    id="processName"
-                    type="text"
-                    .value=${this.processName}
-                    @input=${this.onProcessNameChange}
-                    placeholder="e.g. Course registration"
-                    autocomplete="off"
-                  />
-                </div>
-                <div>
-                  <label for="domain">Domain</label>
-                  <input
-                    id="domain"
-                    type="text"
-                    .value=${this.domain}
-                    @input=${this.onDomainChange}
-                    placeholder="e.g. University"
-                    autocomplete="off"
-                  />
-                </div>
-                <div>
-                  <label for="versionName">Version Label</label>
-                  <input
-                    id="versionName"
-                    type="text"
-                    .value=${this.versionName}
-                    @input=${this.onVersionNameChange}
-                    placeholder="e.g. v1 - initial draft"
-                    autocomplete="off"
-                  />
-                </div>
-              </div>
-
-              <div class="descriptions-grid">
-                <div>
-                  <label for="processDescription">
-                    Process description
-                    <span class="label-optional">optional</span>
-                  </label>
-                  <textarea
-                    id="processDescription"
-                    .value=${this.processDescription}
-                    @input=${this.onProcessDescriptionChange}
-                    placeholder="Brief description of process."
-                  ></textarea>
-                </div>
-                <div>
-                  <label for="initialVersionDescription">
-                    Initial Version Description
-                    <span class="label-optional">optional</span>
-                  </label>
-                  <textarea
-                    id="initialVersionDescription"
-                    .value=${this.initialVersionDescription}
-                    @input=${this.onInitialVersionDescriptionChange}
-                    placeholder="Notes about this specific version."
-                  ></textarea>
-                </div>
-              </div>
-
-              <div>
-                <label for="processText">Text Prompt</label>
-                <textarea
-                  id="processText"
-                  .value=${this.processText}
-                  @input=${this.onTextChange}
-                  placeholder="Describe the process step-by-step. Include actors, decisions, and important alternative or error flows."
-                ></textarea>
-              </div>
-
-              <div class="actions">
-                <div class="button-row">
-                  <button
-                    class="primary"
-                    ?disabled=${this.isGenerating ||
-                    this.isSaving ||
-                    !this.processText.trim()}
-                    @click=${this.onGenerateClick}
-                  >
-                    ${this.isGenerating ? 'Generating…' : 'Generate diagram'}
-                  </button>
-                  <button
-                    class="secondary"
-                    ?disabled=${this.isSaving || !this.plantuml.trim()}
-                    @click=${this.onSaveClick}
-                  >
-                    ${this.isSaving ? 'Saving…' : 'Save to catalog'}
-                  </button>
-                  <button
-                    class="text"
-                    ?disabled=${!this.plantuml && !this.processText}
-                    @click=${this.onClearClick}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div class="status">
-                  <span
-                    class="status-dot ${this.errorMessage
-                      ? 'error'
-                      : this.lastSaveSucceeded
-                      ? ''
-                      : 'pending'}"
-                    aria-hidden="true"
-                  ></span>
-                  ${this.errorMessage
-                    ? 'Last operation failed.'
-                    : this.lastSaveSucceeded
-                    ? 'Last save succeeded.'
-                    : 'Ready. Describe a process and generate a diagram.'}
-                </div>
-              </div>
-
-              ${this.errorMessage
-                ? html`<div class="error">${this.errorMessage}</div>`
-                : null}
-            </section>
-
-            <section class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">Visual canvas editor</div>
-                  <div class="card-subtitle">
-                    Drag UML activity nodes between swimlanes and reorder them
-                    visually.
-                  </div>
-                </div>
-              </div>
-
-              <ad-canvas-editor
-                @structure-change=${this.onCanvasStructureChange}
-              ></ad-canvas-editor>
-
-              <div class="hint">
-                Use the toolbar inside the canvas to add actions and arrange
-                them. The editor emits a structured representation compatible
-                with your backend model.
-              </div>
-            </section>
-
-            <section class="card">
-              <div class="diagram-header" style="margin-bottom: 0;">
-                <div>
-                  <div class="diagram-title">Generated PlantUML</div>
-                  <div class="diagram-meta">
-                    Inspect the PlantUML generated code.
-                  </div>
-                </div>
-                <button
-                  class="secondary"
-                  style="font-size: 12px; padding: 6px 12px;"
-                  ?disabled=${!this.plantuml}
-                  @click=${this.onTogglePlantUmlClick}
-                >
-                  ${this.isPlantUmlExpanded ? 'Hide code' : 'Show code'}
-                </button>
-              </div>
-
-              ${this.isPlantUmlExpanded
-                ? html`
-                    <div style="margin-top: 12px;">
-                      ${this.plantuml
-                        ? html`<pre>${this.plantuml}</pre>`
-                        : html`<div class="placeholder">
-                            Generated PlantUML code will appear here after you
-                            run generation.
-                          </div>`}
-                    </div>
-                  `
-                : null}
-            </section>
-          </div>
+                `
+              : null}
+          </section>
         </div>
       </div>
     `;
@@ -952,21 +831,20 @@ export class AdApp extends LitElement {
       <div class="page">
         <header>
           <div class="title-row">
-            <div>
+            <div class="title-left">
               <div class="badge">
                 <span class="badge-dot"></span>
                 UML Activity Catalog
               </div>
-              <h1>Catalog of generated activity diagrams</h1>
+              <h1>My Catalog of Processes</h1>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="title-right">
               ${this.renderNavTabs()}
               ${this.renderUserChip()}
             </div>
           </div>
           <p class="subtitle">
-            Browse your processes, manage version history and inspect PlantUML
-            code for each activity diagram.
+            Browse your processes, manage version history for each activity diagram.
           </p>
         </header>
 
@@ -980,66 +858,30 @@ export class AdApp extends LitElement {
       <div class="page">
         <header>
           <div class="title-row">
-            <div>
+            <div class="title-left">
               <div class="badge" style="color: #7dd3fc;">
                 <span
                   class="badge-dot"
                   style="background: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.7);"
                 ></span>
-                Public Catalog
+                UML activity Public Catalog
               </div>
-              <h1>Public process catalog</h1>
+              <h1>Public Catalog of Processes</h1>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="title-right">
               ${this.renderNavTabs()}
               ${this.renderUserChip()}
             </div>
           </div>
           <p class="subtitle">
-            Browse publicly shared UML activity diagrams contributed by all
-            users. You can explore any published process and its versions.
+            Browse and clone publicly shared processes contributed by all
+            users.
           </p>
         </header>
 
         <ad-public-catalog-view
           .userEmail=${this.userEmail}
         ></ad-public-catalog-view>
-      </div>
-    `;
-  }
-
-  private renderProcessesPanel() {
-    if (this.isLoadingProcesses) {
-      return html`<div class="placeholder small">Loading processes…</div>`;
-    }
-    if (this.processesError) {
-      return html`<div class="error small">${this.processesError}</div>`;
-    }
-    if (!this.processes.length) {
-      return html`<div class="placeholder small">
-        No processes in the catalog yet. Generate and save your first diagram.
-      </div>`;
-    }
-    return html`
-      <ul class="process-list">
-        ${this.processes.map(
-          (p) => html`
-            <li class="process-item" @click=${() => this.onProcessClick(p)}>
-              <div class="process-name">${p.name}</div>
-              <div class="process-meta">
-                ${p.domain ?? 'No domain'} • ${p.versions_count} version(s)
-              </div>
-            </li>
-          `
-        )}
-      </ul>
-      <div class="catalog-actions">
-        <button
-          class="secondary full-width"
-          @click=${() => this.onNavTabClick('catalog')}
-        >
-          Enter Catalog
-        </button>
       </div>
     `;
   }
@@ -1051,15 +893,12 @@ export class AdApp extends LitElement {
   private onLoginSuccess(e: CustomEvent): void {
     this.userEmail = (e.detail as { email: string }).email;
     sessionStorage.setItem('ad_user_email', this.userEmail);
-    this.loadProcesses();
   }
 
   private onLogoutClick(): void {
     sessionStorage.removeItem('ad_user_email');
     this.userEmail = '';
     this.view = 'generate';
-    this.processes = [];
-    this.processesError = '';
     this.plantuml = '';
     this.processText = '';
     this.processName = '';
@@ -1297,7 +1136,6 @@ export class AdApp extends LitElement {
       }
 
       this.lastSaveSucceeded = true;
-      await this.loadProcesses();
     } catch (error: unknown) {
       console.error('Save failed', error);
       this.errorMessage =
@@ -1323,11 +1161,6 @@ export class AdApp extends LitElement {
     this.lastSaveSucceeded = false;
     this.lastPrompt = null;
     this.promptText = '';
-  }
-
-  private onProcessClick(process: CatalogProcess): void {
-    this.processName = process.name;
-    this.domain = process.domain ?? '';
   }
 }
 
