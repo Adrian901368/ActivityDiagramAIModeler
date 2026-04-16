@@ -116,6 +116,15 @@ class UpdateProcessInput(BaseModel):
     )
 
 
+class CloneRequest(BaseModel):
+    """Payload for cloning a public process."""
+
+    active_only: bool = Field(
+        default=False,
+        description="If true, clone only the active version. If false, clone all versions.",
+    )
+
+
 def _build_process_structure_from_structured_dict(
     structured: Dict[str, Any],
 ) -> ProcessStructureInput:
@@ -130,7 +139,6 @@ def _build_process_structure_from_structured_dict(
     raw_decisions = structured.get("decisions") or []
     raw_parallel = structured.get("parallel_branches") or []
 
-    # Normalize actions
     actions: List[Dict[str, Any]] = []
     for item in raw_actions:
         if not isinstance(item, dict):
@@ -140,7 +148,6 @@ def _build_process_structure_from_structured_dict(
         if actor and action:
             actions.append({"actor": actor, "action": action})
 
-    # Normalize decisions (including new index fields)
     decisions: List[Dict[str, Any]] = []
     for item in raw_decisions:
         if not isinstance(item, dict):
@@ -933,29 +940,47 @@ async def make_process_public_endpoint(
 @router.post(
     "/catalog/public/{process_id}/clone",
     response_model=CatalogProcessDetail,
-    responses={404: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
     summary="Clone a public process into the authenticated user's local catalog",
     tags=["catalog-public"],
 )
 async def clone_public_process_endpoint(
     process_id: int,
+    payload: CloneRequest = Body(...),
     db: Session = Depends(get_db),
     owner_email: str = Depends(get_current_user),
 ) -> CatalogProcessDetail:
     """
     Clone a public process into the local catalog of the authenticated user.
+
+    payload.active_only=false -> clone all versions (default)
+    payload.active_only=true  -> clone only the active version
+
     Creates a new local Process with new ids. The clone is fully editable.
     Returns 404 if the public process does not exist.
+    Returns 400 if active_only=true but the process has no active version.
     """
     cloned = clone_public_process(
         db=db,
         public_process_id=process_id,
         new_owner_email=owner_email,
+        active_only=payload.active_only,
     )
     if cloned is None:
         raise HTTPException(
             status_code=404,
             detail=f"Public process with id {process_id} not found.",
+        )
+
+    if not cloned.versions:
+        db.delete(cloned)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="No active version found to clone. The process has no active version.",
         )
 
     version_items = [

@@ -35,6 +35,8 @@ interface PublicCatalogListItem {
   versions_count: number;
 }
 
+type CloneMode = 'all_versions' | 'active_only';
+
 @customElement('ad-public-catalog-view')
 export class AdPublicCatalogView extends LitElement {
   static override styles = css`
@@ -215,6 +217,19 @@ export class AdPublicCatalogView extends LitElement {
       margin-top: 6px;
     }
 
+    .success-banner {
+      font-size: 13px;
+      color: #bbf7d0;
+      background: rgba(21, 128, 61, 0.25);
+      border-radius: 10px;
+      padding: 8px 10px;
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     button {
       border-radius: 999px;
       border: none;
@@ -253,6 +268,26 @@ export class AdPublicCatalogView extends LitElement {
       background: rgba(2, 106, 168, 0.45);
     }
 
+    button.green {
+      background: rgba(21, 128, 61, 0.25);
+      color: #86efac;
+      border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+
+    button.green:hover {
+      background: rgba(21, 128, 61, 0.45);
+    }
+
+    button.danger {
+      background: rgba(153, 27, 27, 0.25);
+      color: #fca5a5;
+      border: 1px solid rgba(248, 113, 113, 0.4);
+    }
+
+    button.danger:hover {
+      background: rgba(153, 27, 27, 0.5);
+    }
+
     button:disabled {
       opacity: 0.5;
       cursor: default;
@@ -266,6 +301,14 @@ export class AdPublicCatalogView extends LitElement {
       gap: 8px;
       margin-top: 8px;
       flex-wrap: wrap;
+    }
+
+    .detail-actions-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
     }
 
     .status {
@@ -295,7 +338,7 @@ export class AdPublicCatalogView extends LitElement {
 
     .versions-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 8px;
       margin-bottom: 6px;
@@ -479,6 +522,166 @@ export class AdPublicCatalogView extends LitElement {
       padding: 10px 14px;
       margin-top: 4px;
     }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal {
+      background: radial-gradient(circle at top left, #1e293b, #020617 70%);
+      border-radius: 18px;
+      padding: 28px 28px 24px;
+      width: min(460px, 90vw);
+      box-shadow:
+        0 24px 60px rgba(15, 23, 42, 0.8),
+        0 0 0 1px rgba(15, 23, 42, 0.9);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .modal.modal-delete {
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+
+    .modal.modal-clone {
+      border: 1px solid rgba(34, 197, 94, 0.25);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .modal-title.delete {
+      color: #fca5a5;
+    }
+
+    .modal-title.clone {
+      color: #86efac;
+    }
+
+    .modal-body {
+      font-size: 13px;
+      color: #9ca3af;
+      line-height: 1.6;
+    }
+
+    .modal-body strong {
+      color: #e5e7eb;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    /* Clone option cards */
+    .clone-options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .clone-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      background: rgba(15, 23, 42, 0.5);
+      cursor: pointer;
+      transition:
+        border-color 0.15s ease,
+        background 0.15s ease;
+      text-align: left;
+      width: 100%;
+      border-radius: 12px;
+    }
+
+    .clone-option:hover:not(:disabled) {
+      border-color: rgba(34, 197, 94, 0.5);
+      background: rgba(21, 128, 61, 0.12);
+    }
+
+    .clone-option:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .clone-option-icon {
+      font-size: 22px;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .clone-option-content {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .clone-option-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+
+    .clone-option-desc {
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    .clone-option-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      margin-top: 3px;
+      width: fit-content;
+    }
+
+    .clone-option-badge.all {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #7dd3fc;
+    }
+
+    .clone-option-badge.active {
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #86efac;
+    }
+
+    .clone-option-badge.warn {
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      color: #fde68a;
+    }
+
+    .clone-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #86efac;
+      padding: 8px 0;
+    }
   `;
 
   @property({ type: String }) userEmail = '';
@@ -498,8 +701,19 @@ export class AdPublicCatalogView extends LitElement {
   @state() private expandedVersionId: number | null = null;
   @state() private isDetailCodeExpanded = false;
 
+  // Clone state
+  @state() private showCloneModal = false;
+  @state() private isCloningProcess = false;
+  @state() private cloneError = '';
+  @state() private cloneSuccessMessage = '';
+
+  // Delete state
+  @state() private isDeletingProcess = false;
+  @state() private deleteError = '';
+  @state() private showDeleteConfirm = false;
+
   // ---------------------------------------------------------------------------
-  // Auth header helper — used by every fetch in this component
+  // Auth header helper
   // ---------------------------------------------------------------------------
 
   private get authHeaders(): Record<string, string> {
@@ -519,7 +733,6 @@ export class AdPublicCatalogView extends LitElement {
     }
   }
 
-  // Reload the list whenever the parent passes a new/resolved userEmail.
   override updated(changedProperties: Map<string, unknown>): void {
     super.updated(changedProperties);
 
@@ -576,7 +789,7 @@ export class AdPublicCatalogView extends LitElement {
     try {
       const resp = await fetch(url, {
         method: 'GET',
-        headers: this.authHeaders,   // <-- FIX: header pridaný
+        headers: this.authHeaders,
       });
 
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
@@ -612,13 +825,18 @@ export class AdPublicCatalogView extends LitElement {
     this.processDetail = null;
     this.expandedVersionId = null;
     this.isDetailCodeExpanded = false;
+    this.cloneError = '';
+    this.cloneSuccessMessage = '';
+    this.deleteError = '';
+    this.showDeleteConfirm = false;
+    this.showCloneModal = false;
 
     try {
       const resp = await fetch(
         `http://localhost:8000/api/v1/catalog/public/${processId}`,
         {
           method: 'GET',
-          headers: this.authHeaders,   // <-- FIX: header pridaný
+          headers: this.authHeaders,
         }
       );
 
@@ -676,11 +894,129 @@ export class AdPublicCatalogView extends LitElement {
   }
 
   // ---------------------------------------------------------------------------
+  // Clone handlers
+  // ---------------------------------------------------------------------------
+
+  private onCloneClick(): void {
+    this.cloneError = '';
+    this.cloneSuccessMessage = '';
+    this.showCloneModal = true;
+  }
+
+  private onCancelClone(): void {
+    this.showCloneModal = false;
+    this.cloneError = '';
+  }
+
+  private async onConfirmClone(mode: CloneMode): Promise<void> {
+    if (!this.processDetail) return;
+
+    this.isCloningProcess = true;
+    this.cloneError = '';
+    this.cloneSuccessMessage = '';
+
+    try {
+      const body = mode === 'active_only'
+        ? JSON.stringify({ active_only: true })
+        : JSON.stringify({ active_only: false });
+
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/catalog/public/${this.processDetail.id}/clone`,
+        {
+          method: 'POST',
+          headers: this.authHeaders,
+          body,
+        }
+      );
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${resp.status}`;
+        throw new Error(detail);
+      }
+
+      const modeLabel =
+        mode === 'active_only' ? 'active version' : 'all versions';
+      this.cloneSuccessMessage = `Process "${this.processDetail.name}" (${modeLabel}) cloned to your catalog.`;
+      this.showCloneModal = false;
+    } catch (error: unknown) {
+      console.error('Failed to clone process', error);
+      this.cloneError =
+        error instanceof Error
+          ? `Failed to clone: ${error.message}`
+          : 'Failed to clone process.';
+    } finally {
+      this.isCloningProcess = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delete handlers
+  // ---------------------------------------------------------------------------
+
+  private onDeleteClick(): void {
+    this.deleteError = '';
+    this.showDeleteConfirm = true;
+  }
+
+  private onCancelDelete(): void {
+    this.showDeleteConfirm = false;
+    this.deleteError = '';
+  }
+
+  private async onConfirmDelete(): Promise<void> {
+    if (!this.processDetail) return;
+
+    this.isDeletingProcess = true;
+    this.deleteError = '';
+
+    try {
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/catalog/public/${this.processDetail.id}`,
+        {
+          method: 'DELETE',
+          headers: this.authHeaders,
+        }
+      );
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${resp.status}`;
+        throw new Error(detail);
+      }
+
+      this.processes = this.processes.filter(
+        (p) => p.id !== this.processDetail!.id
+      );
+      this.processDetail = null;
+      this.selectedProcessId = null;
+      this.showDeleteConfirm = false;
+
+      if (this.processes.length > 0) {
+        this.onSelectProcess(this.processes[0]);
+      }
+    } catch (error: unknown) {
+      console.error('Failed to delete public process', error);
+      this.deleteError =
+        error instanceof Error
+          ? `Failed to delete: ${error.message}`
+          : 'Failed to delete process.';
+    } finally {
+      this.isDeletingProcess = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   override render() {
-    // Guard: show warning if parent did not pass userEmail yet
     if (!this.userEmail) {
       return html`
         <div class="not-logged-in">
@@ -690,8 +1026,150 @@ export class AdPublicCatalogView extends LitElement {
     }
 
     return html`
+      ${this.showCloneModal ? this.renderCloneModal() : null}
+      ${this.showDeleteConfirm ? this.renderDeleteConfirmModal() : null}
       <div class="layout">
         ${this.renderLeftColumn()} ${this.renderRightColumn()}
+      </div>
+    `;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clone modal
+  // ---------------------------------------------------------------------------
+
+  private renderCloneModal() {
+    if (!this.processDetail) return null;
+
+    const activeVersion = this.processDetail.versions.find(
+      (v) => v.status === 'active'
+    );
+    const hasActiveVersion = !!activeVersion;
+    const totalVersions = this.processDetail.versions.length;
+
+    return html`
+      <div class="modal-overlay">
+        <div class="modal modal-clone">
+          <div class="modal-title clone">📋 Clone process</div>
+          <div class="modal-body">
+            Choose how to clone
+            <strong>"${this.processDetail.name}"</strong>
+            into your catalog:
+          </div>
+
+          ${this.isCloningProcess
+            ? html`
+                <div class="clone-loading">
+                  <span>⏳</span>
+                  <span>Cloning process…</span>
+                </div>
+              `
+            : html`
+                <div class="clone-options">
+                  <!-- All versions option -->
+                  <button
+                    class="clone-option"
+                    @click=${() => this.onConfirmClone('all_versions')}
+                    ?disabled=${this.isCloningProcess}
+                  >
+                    <div class="clone-option-icon">🗂</div>
+                    <div class="clone-option-content">
+                      <div class="clone-option-title">All versions</div>
+                      <div class="clone-option-desc">
+                        Clone the entire process history including all archived
+                        and active versions.
+                      </div>
+                      <span class="clone-option-badge all">
+                        ${totalVersions} version${totalVersions === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </button>
+
+                  <!-- Active version only option -->
+                  <button
+                    class="clone-option"
+                    @click=${() => this.onConfirmClone('active_only')}
+                    ?disabled=${this.isCloningProcess || !hasActiveVersion}
+                  >
+                    <div class="clone-option-icon">✅</div>
+                    <div class="clone-option-content">
+                      <div class="clone-option-title">Active version only</div>
+                      <div class="clone-option-desc">
+                        Clone only the current active version — no archived
+                        history.
+                      </div>
+                      ${hasActiveVersion
+                        ? html`
+                            <span class="clone-option-badge active">
+                              ${activeVersion!.version_name || 'Active version'}
+                            </span>
+                          `
+                        : html`
+                            <span class="clone-option-badge warn">
+                              ⚠ No active version available
+                            </span>
+                          `}
+                    </div>
+                  </button>
+                </div>
+              `}
+
+          ${this.cloneError
+            ? html`<div class="error">${this.cloneError}</div>`
+            : null}
+
+          <div class="modal-actions">
+            <button
+              class="secondary"
+              @click=${this.onCancelClone}
+              ?disabled=${this.isCloningProcess}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delete modal
+  // ---------------------------------------------------------------------------
+
+  private renderDeleteConfirmModal() {
+    if (!this.processDetail) return null;
+
+    return html`
+      <div class="modal-overlay">
+        <div class="modal modal-delete">
+          <div class="modal-title delete">🗑 Delete public process</div>
+          <div class="modal-body">
+            Are you sure you want to permanently delete
+            <strong>"${this.processDetail.name}"</strong> from the public
+            catalog? This action cannot be undone.
+          </div>
+
+          ${this.deleteError
+            ? html`<div class="error">${this.deleteError}</div>`
+            : null}
+
+          <div class="modal-actions">
+            <button
+              class="secondary"
+              @click=${this.onCancelDelete}
+              ?disabled=${this.isDeletingProcess}
+            >
+              Cancel
+            </button>
+            <button
+              class="danger"
+              @click=${this.onConfirmDelete}
+              ?disabled=${this.isDeletingProcess}
+            >
+              ${this.isDeletingProcess ? 'Deleting…' : '🗑 Delete permanently'}
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -822,7 +1300,7 @@ export class AdPublicCatalogView extends LitElement {
 
         <div class="readonly-banner">
           <span class="readonly-banner-dot"></span>
-          Public catalog — read-only view. No edits or deletions possible.
+          Public catalog — read-only view. No edits possible.
         </div>
 
         ${this.renderProcessDetail()}
@@ -853,6 +1331,8 @@ export class AdPublicCatalogView extends LitElement {
     const { name, domain, description, owner_email, versions } =
       this.processDetail;
 
+    const isOwner = this.userEmail === owner_email;
+
     return html`
       <div class="versions-header">
         <div>
@@ -871,6 +1351,38 @@ export class AdPublicCatalogView extends LitElement {
         </div>
         <span class="pill blue">${versions.length} version(s)</span>
       </div>
+
+      <!-- Clone & Delete actions -->
+      <div class="detail-actions-row">
+        <button
+          class="green"
+          @click=${this.onCloneClick}
+          ?disabled=${this.isCloningProcess}
+          title="Clone this process into your local catalog"
+        >
+          📋 Clone to my catalog
+        </button>
+
+        ${isOwner
+          ? html`
+              <button
+                class="danger"
+                @click=${this.onDeleteClick}
+                ?disabled=${this.isDeletingProcess}
+                title="Delete this public process (you are the owner)"
+              >
+                🗑 Delete
+              </button>
+            `
+          : null}
+      </div>
+
+      ${this.cloneSuccessMessage
+        ? html`<div class="success-banner">✓ ${this.cloneSuccessMessage}</div>`
+        : null}
+      ${this.cloneError
+        ? html`<div class="error">${this.cloneError}</div>`
+        : null}
 
       ${versions.length === 0
         ? html`<div class="placeholder small">
@@ -1022,6 +1534,11 @@ export class AdPublicCatalogView extends LitElement {
   private onSelectProcess(process: PublicCatalogListItem): void {
     this.selectedProcessId = process.id;
     this.isDetailCodeExpanded = false;
+    this.cloneError = '';
+    this.cloneSuccessMessage = '';
+    this.deleteError = '';
+    this.showDeleteConfirm = false;
+    this.showCloneModal = false;
     this.loadProcessDetail(process.id);
   }
 
