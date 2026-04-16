@@ -100,7 +100,6 @@ def save_process_version(
     first time. Adding a version to an existing process is handled
     separately by create_new_version_for_process.
     """
-    # 1 — Always create a new process, never reuse an existing one by name.
     process = create_process(
         db=db,
         name=process_name,
@@ -110,12 +109,10 @@ def save_process_version(
         access="local",
     )
 
-    # 2 — First version of a new process is always v1.
     new_number = 1
     if not version_name:
         version_name = f"v{new_number}"
 
-    # 3 — Create and persist Version.
     version = Version(
         process_id=process.id,
         version_number=new_number,
@@ -163,7 +160,7 @@ def get_all_processes(
         .group_by(Process.id, Process.name, Process.domain, Process.description)
         .filter(
             Process.owner_email == owner_email,
-            _is_local(Process.access),  # FIX: NULL-safe local check
+            _is_local(Process.access),
         )
     )
 
@@ -332,13 +329,11 @@ def publish_version(
     if version.status == "active":
         raise ValueError("Version is already active and cannot be re-published.")
 
-    # Archive all other versions of the same process.
     db.query(Version).filter(
         Version.process_id == process_id,
         Version.version_number != version_number,
     ).update({"status": "archived"}, synchronize_session=False)
 
-    # Set selected version to active.
     version.status = "active"
     db.commit()
     db.refresh(version)
@@ -517,14 +512,13 @@ def make_process_public(
         .filter(
             Process.id == process_id,
             Process.owner_email == owner_email,
-            _is_local(Process.access),  # FIX: NULL-safe local check
+            _is_local(Process.access),
         )
         .first()
     )
     if source is None:
         return None
 
-    # Determine which versions to copy.
     if mode == "all_versions":
         allowed_statuses = ("active", "archived")
     else:
@@ -540,7 +534,6 @@ def make_process_public(
         .all()
     )
 
-    # Create a new public Process record.
     public_process = Process(
         name=source.name,
         domain=source.domain,
@@ -551,7 +544,6 @@ def make_process_public(
     db.add(public_process)
     db.flush()
 
-    # Copy qualifying versions with new ids and reset version_number sequence.
     for idx, sv in enumerate(source_versions, start=1):
         new_version = Version(
             process_id=public_process.id,
@@ -579,12 +571,16 @@ def clone_public_process(
     db: Session,
     public_process_id: int,
     new_owner_email: str,
+    active_only: bool = False,
 ) -> Optional[Process]:
     """
     Clone a public process into the local catalog of new_owner_email.
 
-    Creates a new local Process with new ids and copies all non-draft
-    versions. The cloned process is fully editable by the new owner.
+    active_only=False -> copies ALL versions (default behaviour)
+    active_only=True  -> copies ONLY the version with status='active'
+
+    Creates a new local Process with new ids. The cloned process is fully
+    editable by the new owner. All cloned versions start as 'draft'.
     Returns None if the public process does not exist.
     """
     source = (
@@ -595,14 +591,16 @@ def clone_public_process(
     if source is None:
         return None
 
-    source_versions = (
+    versions_query = (
         db.query(Version)
         .filter(Version.process_id == source.id)
-        .order_by(Version.version_number.asc())
-        .all()
     )
 
-    # Create a new local Process for the new owner.
+    if active_only:
+        versions_query = versions_query.filter(Version.status == "active")
+
+    source_versions = versions_query.order_by(Version.version_number.asc()).all()
+
     cloned_process = Process(
         name=source.name,
         domain=source.domain,
@@ -613,7 +611,6 @@ def clone_public_process(
     db.add(cloned_process)
     db.flush()
 
-    # Copy all versions with new ids and reset version_number sequence.
     for idx, sv in enumerate(source_versions, start=1):
         new_version = Version(
             process_id=cloned_process.id,
