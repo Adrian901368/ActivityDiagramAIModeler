@@ -27,6 +27,7 @@ class Process(Base):
     - domain        VARCHAR(100) NULL
     - description   TEXT NULL
     - owner_email   VARCHAR(255) NOT NULL
+    - access        VARCHAR(10) NOT NULL DEFAULT 'local'  ('local' | 'public')
 
     NOTE: Multiple processes with the same name can exist for the same user.
     Process identity is determined solely by the auto-incremented primary key (id).
@@ -41,6 +42,7 @@ class Process(Base):
     domain = Column(String(100), nullable=True)
     description = Column(Text, nullable=True, default=None)
     owner_email = Column(String(255), nullable=False, index=True)
+    access = Column(String(10), nullable=False, default="local", index=True)
 
     versions = relationship(
         "Version",
@@ -70,6 +72,7 @@ class Version(Base):
     - created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     - image_path          VARCHAR(255) NULL
     - canvas_state        JSON NULL
+    - access              VARCHAR(10) NOT NULL DEFAULT 'local'  ('local' | 'public')
     """
 
     __tablename__ = "versions"
@@ -99,5 +102,8 @@ class Version(Base):
     # Full canvas layout snapshot — stores node positions, lane widths,
     # offsets so the diagram can be restored pixel-perfectly from the catalog.
     canvas_state = Column(JSON, nullable=True)
+
+    # Access level: 'local' (private to owner) or 'public' (visible to all users).
+    access = Column(String(10), nullable=False, default="local", index=True)
 
     process = relationship("Process", back_populates="versions")

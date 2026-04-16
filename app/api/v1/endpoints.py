@@ -1,4 +1,5 @@
 # app/api/v1/endpoints.py
+
 from typing import Optional, List, Dict, Any
 
 from fastapi import (
@@ -32,6 +33,11 @@ from app.services.catalog_service import (
     delete_version_for_process,
     publish_version,
     update_draft_version,
+    make_process_public,
+    get_public_processes,
+    get_public_process_detail,
+    clone_public_process,
+    delete_public_process,
 )
 from app.core.config import settings
 from app.database.session import get_db
@@ -46,6 +52,10 @@ from app.core.schemas import (
     NewVersionInput,
     LoginRequest,
     LoginResponse,
+    MakePublicRequest,
+    PublicCatalogProcess,
+    PublicCatalogVersion,
+    PublicCatalogListItem,
 )
 
 router = APIRouter()
@@ -55,17 +65,24 @@ router = APIRouter()
 # Auth dependency
 # ---------------------------------------------------------------------------
 
-def get_current_user(x_user_email: str = Header(..., alias="X-User-Email")) -> str:
+def get_current_user(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+) -> str:
     """
     Reads X-User-Email header and validates it against the allowed accounts list.
-    Raises 401 if the header is missing or the email is not in the allowed list.
+    Returns 401 (not 422) when the header is missing or the email is unknown.
     """
-    if x_user_email not in settings.auth.allowed_emails:
+    if not x_user_email or not x_user_email.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-Email header is required.",
+        )
+    if x_user_email.strip() not in settings.auth.allowed_emails:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: unknown user email.",
         )
-    return x_user_email
+    return x_user_email.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +178,10 @@ def _build_process_structure_from_structured_dict(
                 "branch_yes": yes,
                 "branch_no": no,
             }
-
             if yes_index is not None:
                 decision_dict["yes_action_index"] = yes_index
             if no_index is not None:
                 decision_dict["no_action_index"] = no_index
-
             decisions.append(decision_dict)
 
     parallel_blocks = None
@@ -195,7 +210,6 @@ def _build_process_structure_from_structured_dict(
 async def login(payload: LoginRequest = Body(...)) -> LoginResponse:
     """
     Validate credentials against the hardcoded list of allowed STU test accounts.
-
     Returns the authenticated email on success.
     Raises 401 with 'Invalid credentials' on failure.
     """
@@ -238,10 +252,8 @@ async def generate_activity_diagram(
 ) -> GenerateResponse:
     """
     Generate a UML Activity Diagram in PlantUML syntax from structured JSON input.
-
     This endpoint ONLY generates and validates PlantUML code.
-    It does NOT save anything to the database - saving is handled
-    by separate catalog endpoints.
+    It does NOT save anything to the database.
     """
     system_prompt = build_activity_diagram_system_prompt()
 
@@ -279,27 +291,14 @@ async def generate_activity_diagram(
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM call failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
-    if (
-        not plantuml_code
-        or "@startuml" not in plantuml_code
-        or "@enduml" not in plantuml_code
-    ):
-        raise HTTPException(
-            status_code=500,
-            detail="LLM did not return valid PlantUML code.",
-        )
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(status_code=500, detail="LLM did not return valid PlantUML code.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Generated PlantUML is invalid: {error_msg}",
-        )
+        raise HTTPException(status_code=400, detail=f"Generated PlantUML is invalid: {error_msg}")
 
     return GenerateResponse(
         status="success",
@@ -333,13 +332,7 @@ async def generate_process_structure_from_text(
 ) -> ProcessStructureInput:
     """
     Convert a free-text description of a process into structured JSON.
-
-    This endpoint:
-    1) Calls the LLM to produce a structured JSON description.
-    2) Normalizes the raw JSON and validates it against ProcessStructureInput.
-
-    It does NOT generate PlantUML and does NOT save anything to the database.
-    It is intended as an input for the interactive visual editor on the frontend.
+    Does NOT generate PlantUML and does NOT save anything to the database.
     """
     try:
         structured: Dict[str, Any] = generate_structured_prompt_from_text(
@@ -348,18 +341,12 @@ async def generate_process_structure_from_text(
             domain=domain,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM text-to-structure call failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"LLM text-to-structure call failed: {exc}") from exc
 
     try:
         process_structure = _build_process_structure_from_structured_dict(structured)
     except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Structured process validation failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=400, detail=f"Structured process validation failed: {exc}") from exc
 
     return process_structure
 
@@ -391,14 +378,10 @@ async def generate_activity_diagram_from_text(
 ) -> GenerateResponse:
     """
     End-to-end pipeline for free-text descriptions:
-
-    1) description -> structured JSON (generate_structured_prompt_from_text)
-    2) structured JSON -> PlantUML (same system prompt as /generate)
+    1) description -> structured JSON
+    2) structured JSON -> PlantUML
     3) PlantUML validation
-
-    This endpoint ONLY generates and validates PlantUML code.
-    It does NOT save anything to the database - saving is handled
-    by separate catalog endpoints.
+    Does NOT save anything to the database.
     """
     try:
         structured: Dict[str, Any] = generate_structured_prompt_from_text(
@@ -407,18 +390,12 @@ async def generate_activity_diagram_from_text(
             domain=domain,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM text-to-structure call failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"LLM text-to-structure call failed: {exc}") from exc
 
     try:
         process_structure = _build_process_structure_from_structured_dict(structured)
     except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Structured process validation failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=400, detail=f"Structured process validation failed: {exc}") from exc
 
     system_prompt = build_activity_diagram_system_prompt()
 
@@ -456,27 +433,14 @@ async def generate_activity_diagram_from_text(
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM call failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
-    if (
-        not plantuml_code
-        or "@startuml" not in plantuml_code
-        or "@enduml" not in plantuml_code
-    ):
-        raise HTTPException(
-            status_code=500,
-            detail="LLM did not return valid PlantUML code.",
-        )
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(status_code=500, detail="LLM did not return valid PlantUML code.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Generated PlantUML is invalid: {error_msg}",
-        )
+        raise HTTPException(status_code=400, detail=f"Generated PlantUML is invalid: {error_msg}")
 
     return GenerateResponse(
         status="success",
@@ -503,45 +467,21 @@ async def generate_activity_diagram_from_text(
     tags=["catalog"],
 )
 async def save_version_from_structure(
-    process_name: str = Query(
-        ...,
-        description="Name of the business process (used to find or create Process)",
-        examples={"example": {"value": "Order processing"}},
-    ),
-    domain: str = Query(
-        ...,
-        description="Domain/category of the process",
-        examples={"example": {"value": "E-commerce"}},
-    ),
-    version_name: Optional[str] = Query(
-        default=None,
-        description="Optional human-readable label for this version (e.g. v1, editor-draft-1)",
-        examples={"example": {"value": "v1 - edited draft"}},
-    ),
-    process_description: Optional[str] = Query(
-        default=None,
-        description="Optional human-readable description of the process, stored in Process.description",
-    ),
-    x_user_email: Optional[str] = Header(
-        default=None,
-        alias="X-User-Email",
-        description="Email of the logged-in user (owner of the version)",
-    ),
-    payload: ProcessStructureInput = Body(
-        ...,
-        description="Canonical JSON structure of the process (from visual editor)",
-    ),
+    process_name: str = Query(...),
+    domain: str = Query(...),
+    version_name: Optional[str] = Query(default=None),
+    process_description: Optional[str] = Query(default=None),
+    x_user_email: Optional[str] = Header(default=None, alias="X-User-Email"),
+    payload: ProcessStructureInput = Body(...),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
     Full pipeline for visual editor:
-
-    1) Takes canonical JSON structure (ProcessStructureInput) from the client.
-    2) Generates PlantUML via LLM using the same system prompt as /generate.
-    3) Validates PlantUML with PlantUML server.
-    4) Renders PNG via PlantUML server and stores its path.
-    5) Optionally stores process_description in Process.description.
-    6) Saves a new draft Version in the catalog (tagged with owner_email).
+    1) Takes canonical JSON structure from the client.
+    2) Generates PlantUML via LLM.
+    3) Validates PlantUML.
+    4) Renders PNG and stores its path.
+    5) Saves a new draft Version in the catalog.
     """
     system_prompt = build_activity_diagram_system_prompt()
 
@@ -579,35 +519,19 @@ async def save_version_from_structure(
     try:
         plantuml_code = generate_simple_response(messages)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM call failed: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
-    if (
-        not plantuml_code
-        or "@startuml" not in plantuml_code
-        or "@enduml" not in plantuml_code
-    ):
-        raise HTTPException(
-            status_code=500,
-            detail="LLM did not return valid PlantUML code.",
-        )
+    if not plantuml_code or "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
+        raise HTTPException(status_code=500, detail="LLM did not return valid PlantUML code.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Generated PlantUML is invalid: {error_msg}",
-        )
+        raise HTTPException(status_code=400, detail=f"Generated PlantUML is invalid: {error_msg}")
 
     try:
         image_path = render_plantuml_to_png(plantuml_code)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to render PlantUML diagram: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to render PlantUML diagram: {exc}") from exc
 
     try:
         version = save_process_version(
@@ -626,10 +550,7 @@ async def save_version_from_structure(
             owner_email=x_user_email,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save process version: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to save process version: {exc}") from exc
 
     return CatalogVersion(
         id=version.id,
@@ -656,73 +577,32 @@ async def save_version_from_structure(
     tags=["catalog"],
 )
 async def save_generated_version(
-    process_name: str = Query(
-        ...,
-        description="Name of the business process (will be used to find or create Process)",
-        examples={"example": {"value": "Order processing"}},
-    ),
-    domain: str = Query(
-        ...,
-        description="Domain/category of the process",
-        examples={"example": {"value": "E-commerce"}},
-    ),
-    version_name: Optional[str] = Query(
-        default=None,
-        description="Optional human-readable label for this version (e.g. v1, draft-1)",
-        examples={"example": {"value": "v1 - initial draft"}},
-    ),
-    process_description: Optional[str] = Query(
-        default=None,
-        description="Optional human-readable description of the process, stored in Process.description",
-    ),
-    x_user_email: Optional[str] = Header(
-        default=None,
-        alias="X-User-Email",
-        description="Email of the logged-in user (owner of the version)",
-    ),
-    payload: NewVersionInput = Body(
-        ...,
-        description="PlantUML code (and optional prompt + canvas_state) to be saved",
-    ),
+    process_name: str = Query(...),
+    domain: str = Query(...),
+    version_name: Optional[str] = Query(default=None),
+    process_description: Optional[str] = Query(default=None),
+    x_user_email: Optional[str] = Header(default=None, alias="X-User-Email"),
+    payload: NewVersionInput = Body(...),
     db: Session = Depends(get_db),
 ) -> CatalogVersion:
     """
     Save a generated PlantUML diagram as a new draft Version in the catalog.
-
-    - Finds or creates Process by (process_name, domain).
-    - Optionally stores process_description in Process.description.
-    - Validates PlantUML.
-    - Renders PNG via PlantUML server and stores its path.
-    - Creates a new Version row with auto-incremented version_number.
-    - Status is set to 'draft' by default.
     """
     plantuml_code = (payload.plantuml_code or "").strip()
     if not plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must not be empty.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must not be empty.")
 
     if "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must contain @startuml and @enduml.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must contain @startuml and @enduml.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"PlantUML validation failed before save: {error_msg}",
-        )
+        raise HTTPException(status_code=400, detail=f"PlantUML validation failed before save: {error_msg}")
 
     try:
         image_path = render_plantuml_to_png(plantuml_code)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to render PlantUML diagram: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to render PlantUML diagram: {exc}") from exc
 
     try:
         version = save_process_version(
@@ -741,10 +621,7 @@ async def save_generated_version(
             owner_email=x_user_email,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save process version: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to save process version: {exc}") from exc
 
     return CatalogVersion(
         id=version.id,
@@ -766,24 +643,18 @@ async def save_generated_version(
 @router.get(
     "/catalog/processes",
     response_model=List[ProcessInCatalog],
-    summary="List all processes in catalog",
+    summary="List all local processes in catalog",
     tags=["catalog"],
 )
 async def list_processes(
-    name: str | None = Query(
-        default=None,
-        description="Substring of process name (case-insensitive)",
-    ),
-    domain: str | None = Query(
-        default=None,
-        description="Substring of domain (case-insensitive)",
-    ),
+    name: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
     db: Session = Depends(get_db),
     owner_email: str = Depends(get_current_user),
 ) -> List[ProcessInCatalog]:
     """
-    Return a list of all processes in the catalog belonging to the authenticated user,
-    optionally filtered by name and/or domain (case-insensitive substring match).
+    Return a list of all LOCAL processes in the catalog belonging to the
+    authenticated user, optionally filtered by name and/or domain.
     """
     return catalog_service.get_all_processes(
         db,
@@ -792,6 +663,63 @@ async def list_processes(
         domain=domain,
     )
 
+
+# ---------------------------------------------------------------------------
+# Public catalog endpoints
+# NOTE: /catalog/public and /catalog/public/{process_id} MUST be registered
+# BEFORE /catalog/{process_id} to prevent FastAPI from treating 'public'
+# as an integer process_id path param.
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/catalog/public",
+    response_model=List[PublicCatalogListItem],
+    summary="List all public processes (visible to all authenticated users)",
+    tags=["catalog-public"],
+)
+async def list_public_processes(
+    name: str | None = Query(default=None, description="Substring of process name"),
+    owner: str | None = Query(default=None, description="Substring of owner email"),
+    db: Session = Depends(get_db),
+    _owner_email: str = Depends(get_current_user),
+) -> List[PublicCatalogListItem]:
+    """
+    Return a lightweight list of all public processes with versions_count.
+    Every authenticated user can see these regardless of who created them.
+    Supports optional filtering by name and owner email substring.
+    """
+    return get_public_processes(db, name=name, owner=owner)
+
+
+@router.get(
+    "/catalog/public/{process_id}",
+    response_model=PublicCatalogProcess,
+    responses={404: {"model": ErrorResponse}},
+    summary="Get full detail of a public process including all versions",
+    tags=["catalog-public"],
+)
+async def get_public_process_detail_endpoint(
+    process_id: int,
+    db: Session = Depends(get_db),
+    _owner_email: str = Depends(get_current_user),
+) -> PublicCatalogProcess:
+    """
+    Return full detail for a single public process including all its versions.
+    Every authenticated user can view any public process.
+    Returns 404 if the process does not exist or is not public.
+    """
+    detail = get_public_process_detail(db, process_id=process_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Public process with id {process_id} not found.",
+        )
+    return detail
+
+
+# ---------------------------------------------------------------------------
+# Private catalog — single process detail and mutations
+# ---------------------------------------------------------------------------
 
 @router.get(
     "/catalog/{process_id}",
@@ -802,41 +730,33 @@ async def list_processes(
 )
 async def get_process_catalog(
     process_id: int,
-    version_name: str | None = Query(
-        default=None,
-        description="Substring of version name to filter versions",
-    ),
-    status: str | None = Query(
-        default=None,
-        description="Version status filter: draft, active, archived",
-    ),
+    version_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     db: Session = Depends(get_db),
     owner_email: str = Depends(get_current_user),
 ) -> CatalogProcessDetail:
     """
-    Return catalog information for a single process, including all
-    stored versions and their PlantUML code.
-
-    Returns 404 if the process does not exist or does not belong to the
-    authenticated user.
+    Return catalog information for a single local process, including all
+    stored versions. Returns 404 if the process does not exist or does not
+    belong to the authenticated user.
     """
     process = (
         db.query(Process)
-        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .filter(
+            Process.id == process_id,
+            Process.owner_email == owner_email,
+            Process.access == "local",
+        )
         .first()
     )
     if process is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Process with id {process_id} not found.",
-        )
+        raise HTTPException(status_code=404, detail=f"Process with id {process_id} not found.")
 
     query = (
         db.query(Version)
         .filter(Version.process_id == process.id)
         .order_by(Version.version_number.desc())
     )
-
     if version_name:
         query = query.filter(Version.version_name.ilike(f"%{version_name}%"))
     if status:
@@ -885,19 +805,20 @@ async def update_process(
     owner_email: str = Depends(get_current_user),
 ) -> CatalogProcessDetail:
     """
-    Update the name and/or description of an existing process.
+    Update the name and/or description of an existing local process.
     Only the owner of the process can update it.
     """
     process = (
         db.query(Process)
-        .filter(Process.id == process_id, Process.owner_email == owner_email)
+        .filter(
+            Process.id == process_id,
+            Process.owner_email == owner_email,
+            Process.access == "local",
+        )
         .first()
     )
     if process is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Process with id {process_id} not found.",
-        )
+        raise HTTPException(status_code=404, detail=f"Process with id {process_id} not found.")
 
     process.name = payload.name.strip()
     process.description = payload.description
@@ -939,6 +860,166 @@ async def update_process(
 
 
 @router.post(
+    "/catalog/{process_id}/make-public",
+    response_model=PublicCatalogProcess,
+    responses={
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+    summary="Make a local process public (creates a public copy)",
+    tags=["catalog-public"],
+)
+async def make_process_public_endpoint(
+    process_id: int,
+    payload: MakePublicRequest = Body(...),
+    db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
+) -> PublicCatalogProcess:
+    """
+    Create a public copy of a local process owned by the authenticated user.
+
+    mode='active_only'  -> copies only versions with status='active'
+    mode='all_versions' -> copies versions with status IN ('active', 'archived')
+    Draft versions are NEVER included regardless of mode.
+
+    Returns 404 if the process does not exist or does not belong to the user.
+    Returns 400 if there are no qualifying versions to publish.
+    """
+    public_process = make_process_public(
+        db=db,
+        process_id=process_id,
+        owner_email=owner_email,
+        mode=payload.mode,
+    )
+    if public_process is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process with id {process_id} not found.",
+        )
+
+    if not public_process.versions:
+        db.delete(public_process)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="No qualifying versions to publish. Make at least one version active or archived first.",
+        )
+
+    return PublicCatalogProcess(
+        id=public_process.id,
+        name=public_process.name,
+        domain=public_process.domain,
+        description=public_process.description,
+        owner_email=public_process.owner_email,
+        versions=[
+            PublicCatalogVersion(
+                id=v.id,
+                version_number=v.version_number,
+                version_name=v.version_name or "",
+                version_description=v.version_description,
+                status=v.status,
+                created_at=v.created_at,
+                llm_model=v.llm_model,
+                plantuml_code=v.plantuml_code,
+                image_path=v.image_path,
+                canvas_state=v.canvas_state,
+                prompt=v.prompt,
+            )
+            for v in public_process.versions
+        ],
+    )
+
+
+@router.post(
+    "/catalog/public/{process_id}/clone",
+    response_model=CatalogProcessDetail,
+    responses={404: {"model": ErrorResponse}},
+    summary="Clone a public process into the authenticated user's local catalog",
+    tags=["catalog-public"],
+)
+async def clone_public_process_endpoint(
+    process_id: int,
+    db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
+) -> CatalogProcessDetail:
+    """
+    Clone a public process into the local catalog of the authenticated user.
+    Creates a new local Process with new ids. The clone is fully editable.
+    Returns 404 if the public process does not exist.
+    """
+    cloned = clone_public_process(
+        db=db,
+        public_process_id=process_id,
+        new_owner_email=owner_email,
+    )
+    if cloned is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Public process with id {process_id} not found.",
+        )
+
+    version_items = [
+        CatalogVersion(
+            id=v.id,
+            process_id=v.process_id,
+            version_number=v.version_number,
+            version_name=v.version_name or "",
+            version_description=v.version_description,
+            created_at=v.created_at,
+            llm_model=v.llm_model,
+            tokens_used=v.tokens_used,
+            status=v.status,
+            plantuml_code=v.plantuml_code,
+            image_path=v.image_path,
+            prompt=v.prompt,
+            canvas_state=v.canvas_state,
+        )
+        for v in cloned.versions
+    ]
+
+    return CatalogProcessDetail(
+        process_id=cloned.id,
+        process_name=cloned.name,
+        domain=cloned.domain,
+        description=cloned.description,
+        versions=version_items,
+    )
+
+
+@router.delete(
+    "/catalog/public/{process_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+    summary="Delete a public process (owner only)",
+    tags=["catalog-public"],
+)
+async def delete_public_process_endpoint(
+    process_id: int,
+    db: Session = Depends(get_db),
+    owner_email: str = Depends(get_current_user),
+) -> Response:
+    """
+    Delete a public process and all its versions.
+    Only the user who made the process public can delete it.
+    Returns 404 if the process does not exist or requester is not the owner.
+    """
+    deleted = delete_public_process(
+        db=db,
+        public_process_id=process_id,
+        requester_email=owner_email,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Public process with id {process_id} not found or you are not the owner.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
     "/catalog/{process_id}/versions",
     response_model=CatalogVersion,
     responses={
@@ -952,47 +1033,29 @@ async def update_process(
 async def create_process_version(
     process_id: int,
     payload: NewVersionInput,
-    version_name: str = Query(
-        "",
-        description="Optional human-friendly name of this version",
-    ),
+    version_name: str = Query("", description="Optional human-friendly name of this version"),
     db: Session = Depends(get_db),
     owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Create a new draft version for an existing process using already generated PlantUML.
-
-    This endpoint does NOT call the LLM. It assumes that PlantUML was generated
-    and inspected before, and only handles validation + saving to the catalog.
-    Verifies that the process belongs to the authenticated user.
+    Does NOT call the LLM.
     """
     plantuml_code = (payload.plantuml_code or "").strip()
     if not plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must not be empty.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must not be empty.")
 
     if "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must contain @startuml and @enduml.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must contain @startuml and @enduml.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"PlantUML validation failed before save: {error_msg}",
-        )
+        raise HTTPException(status_code=400, detail=f"PlantUML validation failed before save: {error_msg}")
 
     try:
         image_path = render_plantuml_to_png(plantuml_code)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to render PlantUML diagram: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to render PlantUML diagram: {exc}") from exc
 
     try:
         version = create_new_version_for_process(
@@ -1011,10 +1074,7 @@ async def create_process_version(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save new version: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to save new version: {exc}") from exc
 
     return CatalogVersion(
         id=version.id,
@@ -1048,49 +1108,29 @@ async def update_draft_process_version(
     process_id: int,
     version_number: int,
     payload: NewVersionInput,
-    version_name: str = Query(
-        "",
-        description="Optional name of this version (if empty, keeps current name)",
-    ),
+    version_name: str = Query("", description="Optional name of this version"),
     db: Session = Depends(get_db),
     owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
     Update an existing draft version using already generated (and inspected) PlantUML.
-
-    This endpoint does NOT call the LLM. It only validates the provided PlantUML,
-    re-renders PNG diagram, and updates the corresponding draft version in the catalog.
-    Verifies that the process belongs to the authenticated user.
+    Does NOT call the LLM.
     """
     plantuml_code = (payload.plantuml_code or "").strip()
     if not plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must not be empty.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must not be empty.")
 
     if "@startuml" not in plantuml_code or "@enduml" not in plantuml_code:
-        raise HTTPException(
-            status_code=400,
-            detail="plantuml_code must contain @startuml and @enduml.",
-        )
+        raise HTTPException(status_code=400, detail="plantuml_code must contain @startuml and @enduml.")
 
     is_valid, error_msg = validate_plantuml(plantuml_code)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"PlantUML validation failed before save: {error_msg}",
-        )
-
-    new_version_name = version_name
+        raise HTTPException(status_code=400, detail=f"PlantUML validation failed before save: {error_msg}")
 
     try:
         image_path = render_plantuml_to_png(plantuml_code)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to render PlantUML diagram: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to render PlantUML diagram: {exc}") from exc
 
     try:
         updated = update_draft_version(
@@ -1100,7 +1140,7 @@ async def update_draft_process_version(
             plantuml_code=plantuml_code,
             owner_email=owner_email,
             prompt_dict=payload.prompt or {},
-            version_name=new_version_name,
+            version_name=version_name,
             version_description=payload.version_description,
             image_path=image_path,
             canvas_state=payload.canvas_state,
@@ -1108,10 +1148,7 @@ async def update_draft_process_version(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update draft version: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to update draft version: {exc}") from exc
 
     if updated is None:
         raise HTTPException(
@@ -1149,16 +1186,12 @@ async def delete_process(
     owner_email: str = Depends(get_current_user),
 ) -> Response:
     """
-    Delete a process from the catalog, including all its stored versions.
+    Delete a local process from the catalog, including all its stored versions.
     Only the owner of the process can delete it.
     """
     deleted = delete_process_with_versions(db, process_id, owner_email=owner_email)
     if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Process with id {process_id} not found.",
-        )
-
+        raise HTTPException(status_code=404, detail=f"Process with id {process_id} not found.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1185,20 +1218,18 @@ async def delete_process_version(
         version_number=version_number,
         owner_email=owner_email,
     )
-
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Version {version_number} for process {process_id} not found.",
         )
-
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete(
     "/catalog",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete ALL processes and their versions for the authenticated user",
+    summary="Delete ALL local processes and their versions for the authenticated user",
     tags=["catalog"],
 )
 async def clear_catalog(
@@ -1206,14 +1237,14 @@ async def clear_catalog(
     owner_email: str = Depends(get_current_user),
 ) -> Response:
     """
-    Hard-delete all processes and all their versions belonging to the
-    authenticated user. Does NOT affect other users' data.
+    Hard-delete all LOCAL processes and all their versions belonging to the
+    authenticated user. Does NOT affect other users' data or public processes.
     """
     try:
         process_ids = [
             row.id
             for row in db.query(Process.id)
-            .filter(Process.owner_email == owner_email)
+            .filter(Process.owner_email == owner_email, Process.access == "local")
             .all()
         ]
 
@@ -1227,10 +1258,7 @@ async def clear_catalog(
             db.commit()
     except Exception as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to clear catalog: {exc}",
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to clear catalog: {exc}") from exc
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1252,7 +1280,8 @@ async def publish_process_version(
     owner_email: str = Depends(get_current_user),
 ) -> CatalogVersion:
     """
-    Publish a specific version of a process.
+    Publish a specific version of a process (sets status to 'active',
+    archives all other versions of that process).
     Verifies that the process belongs to the authenticated user.
     """
     try:

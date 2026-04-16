@@ -33,8 +33,34 @@ interface CatalogProcessDetail {
   versions: CatalogVersion[];
 }
 
+interface PublicCatalogVersion {
+  id: number;
+  version_number: number;
+  version_name: string;
+  version_description: string | null;
+  status: string;
+  created_at: string;
+  llm_model: string;
+  plantuml_code: string;
+  image_path: string | null;
+  canvas_state: Record<string, unknown> | null;
+  prompt: Record<string, unknown> | null;
+  access: string;
+}
+
+interface PublicCatalogProcess {
+  id: number;
+  name: string;
+  domain: string | null;
+  description: string | null;
+  owner_email: string;
+  versions: PublicCatalogVersion[];
+  access: string;
+}
+
 type CatalogSubView = 'list' | 'create' | 'update';
 type EditMode = 'create' | 'update' | null;
+type MakePublicMode = 'active_only' | 'all_versions';
 
 @customElement('ad-catalog-view')
 export class AdCatalogView extends LitElement {
@@ -265,6 +291,16 @@ export class AdCatalogView extends LitElement {
 
     button.primary:hover {
       background: linear-gradient(135deg, #4338ca, #6d28d9);
+    }
+
+    button.success {
+      background: rgba(20, 83, 45, 0.9);
+      color: #bbf7d0;
+      border: 1px solid rgba(34, 197, 94, 0.7);
+    }
+
+    button.success:hover {
+      background: rgba(22, 101, 52, 1);
     }
 
     button.danger {
@@ -526,10 +562,96 @@ export class AdCatalogView extends LitElement {
       letter-spacing: 0.05em;
       margin-bottom: 2px;
     }
+
+    /* Make Public Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.85);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal {
+      background: radial-gradient(circle at top left, #1e293b, #020617 80%);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 20px;
+      padding: 28px 28px 24px;
+      max-width: 440px;
+      width: 100%;
+      box-shadow:
+        0 32px 64px rgba(2, 6, 23, 0.8),
+        0 0 0 1px rgba(79, 70, 229, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-title {
+      font-size: 17px;
+      font-weight: 650;
+      color: #e5e7eb;
+      letter-spacing: 0.01em;
+    }
+
+    .modal-subtitle {
+      font-size: 13px;
+      color: #9ca3af;
+      line-height: 1.55;
+      margin-top: -8px;
+    }
+
+    .modal-option {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(55, 65, 81, 0.8);
+      background: rgba(15, 23, 42, 0.6);
+      cursor: pointer;
+      transition:
+        border-color 0.15s ease,
+        background 0.15s ease;
+    }
+
+    .modal-option:hover {
+      border-color: #4f46e5;
+      background: rgba(79, 70, 229, 0.08);
+    }
+
+    .modal-option-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+
+    .modal-option-desc {
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.45;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .modal-error {
+      font-size: 12px;
+      color: #fecaca;
+      background: rgba(153, 27, 27, 0.35);
+      border: 1px solid rgba(248, 113, 113, 0.6);
+      border-radius: 8px;
+      padding: 7px 10px;
+    }
   `;
 
-  // Authenticated user email — set by the parent shell after login.
-  // All catalog fetch() calls include this as X-User-Email header.
   @property({ type: String }) userEmail = '';
 
   @state() private subView: CatalogSubView = 'list';
@@ -552,14 +674,12 @@ export class AdCatalogView extends LitElement {
   @state() private isDeletingProcess = false;
   @state() private isMutatingVersion = false;
 
-  // Inline process name/description editing
   @state() private isEditingProcess = false;
   @state() private editProcessNameInput = '';
   @state() private editProcessDescriptionInput = '';
   @state() private isSavingProcess = false;
   @state() private processEditError = '';
 
-  // Edit view state – description-based, backend regenerates PlantUML
   @state() private editMode: EditMode = null;
   @state() private editProcessId: number | null = null;
   @state() private editProcessName = '';
@@ -577,8 +697,13 @@ export class AdCatalogView extends LitElement {
   @state() private isPlantUmlExpanded = false;
   @state() private isDetailCodeExpanded = false;
 
+  // Make Public modal state
+  @state() private showMakePublicModal = false;
+  @state() private isMakingPublic = false;
+  @state() private makePublicError = '';
+
   // ---------------------------------------------------------------------------
-  // Helper: build auth headers for all catalog requests
+  // Helpers
   // ---------------------------------------------------------------------------
 
   private authHeaders(): Record<string, string> {
@@ -634,9 +759,7 @@ export class AdCatalogView extends LitElement {
       : 'http://localhost:8000/api/v1/catalog/processes';
 
     try {
-      const resp = await fetch(url, {
-        headers: { ...this.authHeaders() },
-      });
+      const resp = await fetch(url, { headers: { ...this.authHeaders() } });
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
 
       const data = (await resp.json()) as CatalogProcess[];
@@ -693,14 +816,16 @@ export class AdCatalogView extends LitElement {
   // ---------------------------------------------------------------------------
 
   override render() {
-    if (this.subView === 'list') {
-      return html`
-        <div class="layout">
-          ${this.renderLeftColumn()} ${this.renderRightColumn()}
-        </div>
-      `;
-    }
-    return this.renderEditView();
+    return html`
+      ${this.showMakePublicModal ? this.renderMakePublicModal() : null}
+      ${this.subView === 'list'
+        ? html`
+            <div class="layout">
+              ${this.renderLeftColumn()} ${this.renderRightColumn()}
+            </div>
+          `
+        : this.renderEditView()}
+    `;
   }
 
   // ===== LIST / DETAIL VIEW =====
@@ -851,6 +976,13 @@ export class AdCatalogView extends LitElement {
           Create new version
         </button>
         <button
+          class="success"
+          @click=${this.onMakePublicClick}
+          ?disabled=${this.isMakingPublic || this.isDeletingProcess}
+        >
+          ${this.isMakingPublic ? 'Publishing…' : 'Make public'}
+        </button>
+        <button
           class="danger"
           @click=${this.onDeleteProcessClick}
           ?disabled=${this.isDeletingProcess}
@@ -895,9 +1027,7 @@ export class AdCatalogView extends LitElement {
                 margin-top: 10px;
                 margin-bottom: 2px;
                 line-height: 1.5;
-              ">
-            ${description}
-          </div>`
+              ">${description}</div>`
             : null}
         </div>
         <span class="pill">
@@ -987,6 +1117,72 @@ export class AdCatalogView extends LitElement {
           >
             ${this.isSavingProcess ? 'Saving…' : 'Save changes'}
           </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Make Public Modal
+  // ---------------------------------------------------------------------------
+
+  private renderMakePublicModal() {
+    const processName = this.processDetail?.process_name ?? '';
+    return html`
+      <div class="modal-backdrop" @click=${this.onModalBackdropClick}>
+        <div class="modal" @click=${(e: Event) => e.stopPropagation()}>
+          <div class="modal-title">Make process public</div>
+          <div class="modal-subtitle">
+            A copy of <strong style="color:#e5e7eb;">${processName}</strong>
+            will be created in the public catalog, visible to all users.
+            Choose which versions to include:
+          </div>
+
+          ${this.makePublicError
+            ? html`<div class="modal-error">${this.makePublicError}</div>`
+            : null}
+
+          <div
+            class="modal-option"
+            @click=${() => this.onConfirmMakePublic('active_only')}
+            role="button"
+            tabindex="0"
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') this.onConfirmMakePublic('active_only');
+            }}
+          >
+            <div class="modal-option-title">Active version only</div>
+            <div class="modal-option-desc">
+              Only the currently active (published) version will be copied to
+              the public catalog.
+            </div>
+          </div>
+
+          <div
+            class="modal-option"
+            @click=${() => this.onConfirmMakePublic('all_versions')}
+            role="button"
+            tabindex="0"
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') this.onConfirmMakePublic('all_versions');
+            }}
+          >
+            <div class="modal-option-title">All versions</div>
+            <div class="modal-option-desc">
+              All active and archived versions will be copied. Draft versions
+              are never included.
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              class="secondary"
+              @click=${this.onCancelMakePublic}
+              ?disabled=${this.isMakingPublic}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -1192,7 +1388,6 @@ export class AdCatalogView extends LitElement {
     return html`
       <div style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
 
-        <!-- CARD 1: DESCRIPTION & INPUTS -->
         <section class="card">
           <div class="edit-header">
             <div>
@@ -1288,17 +1483,12 @@ export class AdCatalogView extends LitElement {
           </div>
         </section>
 
-        <!-- CARD 2: CANVAS EDITOR -->
         <section class="card">
           <div class="card-header">
             <div>
               <div class="card-title">Visual canvas editor (beta)</div>
-              <div
-                class="card-subtitle"
-                style="font-size: 12px; color: #6b7280;"
-              >
-                Drag UML activity nodes between swimlanes and reorder them
-                visually.
+              <div class="card-subtitle" style="font-size: 12px; color: #6b7280;">
+                Drag UML activity nodes between swimlanes and reorder them visually.
               </div>
             </div>
           </div>
@@ -1309,29 +1499,17 @@ export class AdCatalogView extends LitElement {
 
           <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">
             Use the toolbar inside the canvas to add actions and arrange them.
-            The editor emits a structured representation compatible with your
-            backend model.
           </div>
         </section>
 
-        <!-- CARD 3: EXPANDABLE PLANTUML -->
         <section class="card">
-          <div
-            style="display: flex; justify-content: space-between; align-items: center; gap: 10px;"
-          >
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
             <div>
-              <div
-                class="card-title"
-                style="font-size: 14px; font-weight: 500; color: #d1d5db;"
-              >
+              <div class="card-title" style="font-size: 14px; font-weight: 500; color: #d1d5db;">
                 Generated PlantUML
               </div>
-              <div
-                class="card-subtitle"
-                style="font-size: 11px; color: #6b7280;"
-              >
-                Inspect the PlantUML code generated by the LLM before saving
-                it.
+              <div class="card-subtitle" style="font-size: 11px; color: #6b7280;">
+                Inspect the PlantUML code generated by the LLM before saving it.
               </div>
             </div>
             <button
@@ -1446,7 +1624,6 @@ export class AdCatalogView extends LitElement {
       this.processDetail = updated;
       this.isEditingProcess = false;
 
-      // Reflect updated name in the left-column list immediately
       this.processes = this.processes.map((p) =>
         p.id === updated.process_id ? { ...p, name: updated.process_name } : p
       );
@@ -1460,6 +1637,68 @@ export class AdCatalogView extends LitElement {
       this.isSavingProcess = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Handlers: Make Public
+  // ---------------------------------------------------------------------------
+
+  private onMakePublicClick(): void {
+    if (!this.processDetail) return;
+    this.makePublicError = '';
+    this.showMakePublicModal = true;
+  }
+
+  private onCancelMakePublic(): void {
+    this.showMakePublicModal = false;
+    this.makePublicError = '';
+  }
+
+  private onModalBackdropClick(): void {
+    if (!this.isMakingPublic) {
+      this.showMakePublicModal = false;
+      this.makePublicError = '';
+    }
+  }
+
+  private async onConfirmMakePublic(mode: MakePublicMode): Promise<void> {
+      if (!this.processDetail) return;
+
+      this.isMakingPublic = true;
+      this.makePublicError = '';
+
+      try {
+        const resp = await fetch(
+          `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}/make-public`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...this.authHeaders(),
+            },
+            body: JSON.stringify({ mode }),
+          }
+        );
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => null);
+          const detail =
+            err && typeof err.detail === 'string'
+              ? err.detail
+              : `Backend returned status ${resp.status}`;
+          throw new Error(detail);
+        }
+
+        this.showMakePublicModal = false;
+      } catch (error: unknown) {
+        console.error('Failed to make process public', error);
+        this.makePublicError =
+          error instanceof Error
+            ? `Failed to publish: ${error.message}`
+            : 'Failed to publish process.';
+      } finally {
+        this.isMakingPublic = false;
+      }
+    }
 
   // ---------------------------------------------------------------------------
   // Handlers: delete / publish
@@ -1718,7 +1957,6 @@ export class AdCatalogView extends LitElement {
     this.editVersionDescription = (event.target as HTMLTextAreaElement).value;
   }
 
-  // Generate only (preview) — uses /generate-from-text, does NOT save, no auth needed
   private async onEditGenerateClick(): Promise<void> {
     if (!this.editMode || this.editProcessId === null || !this.processDetail) return;
 
@@ -1751,9 +1989,7 @@ export class AdCatalogView extends LitElement {
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(
-          `Backend returned status ${resp.status}${
-            text ? ` – ${text.slice(0, 200)}` : ''
-          }`
+          `Backend returned status ${resp.status}${text ? ` – ${text.slice(0, 200)}` : ''}`
         );
       }
       const data = await resp.json();
@@ -1775,7 +2011,6 @@ export class AdCatalogView extends LitElement {
     }
   }
 
-  // Save generated PlantUML as new version or update draft (auth required)
   private async onEditSaveClick(): Promise<void> {
     if (!this.editMode || this.editProcessId === null) return;
 
@@ -1851,9 +2086,7 @@ export class AdCatalogView extends LitElement {
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(
-          `Backend returned status ${resp.status}${
-            text ? ` – ${text.slice(0, 200)}` : ''
-          }`
+          `Backend returned status ${resp.status}${text ? ` – ${text.slice(0, 200)}` : ''}`
         );
       }
 
