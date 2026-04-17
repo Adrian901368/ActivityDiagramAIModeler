@@ -269,6 +269,21 @@ export class AdApp extends LitElement {
       margin-top: 4px;
     }
 
+    .section-divider {
+      border: none;
+      border-top: 1px solid rgba(55, 65, 81, 0.5);
+      margin: 6px 0 2px;
+    }
+
+    .update-prompt-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+
     .actions {
       display: flex;
       align-items: center;
@@ -471,6 +486,40 @@ export class AdApp extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    /* Update by Prompt */
+    .update-prompt-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .update-prompt-row textarea {
+      min-height: 52px;
+      max-height: 120px;
+      resize: vertical;
+      flex: 1 1 0;
+    }
+
+    .update-prompt-row button {
+      flex-shrink: 0;
+      align-self: flex-end;
+    }
+
+    button.accent {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+      box-shadow:
+        0 10px 24px rgba(14, 165, 233, 0.4),
+        0 0 1px rgba(99, 102, 241, 0.6);
+    }
+
+    button.accent:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow:
+        0 14px 32px rgba(14, 165, 233, 0.6),
+        0 0 1px rgba(99, 102, 241, 0.9);
+    }
   `;
 
   // ---------------------------------------------------------------------------
@@ -523,6 +572,11 @@ export class AdApp extends LitElement {
   @state() private promptText = '';
 
   @state() private isPlantUmlExpanded = false;
+
+  // Update by Prompt state
+  @state() private updateInstruction = '';
+  @state() private isUpdatingByPrompt = false;
+  @state() private updateByPromptError = '';
 
   // ---------------------------------------------------------------------------
   // Auth helpers
@@ -631,7 +685,7 @@ export class AdApp extends LitElement {
           <p class="subtitle">
             Describe a process in natural language and let the model generate a
             UML activity diagram. You can store multiple versions per process
-            or domain and share to public catalog. 
+            or domain and share to public catalog.
           </p>
         </header>
 
@@ -718,6 +772,66 @@ export class AdApp extends LitElement {
                 @input=${this.onTextChange}
                 placeholder="Describe the process step-by-step. Include actors, decisions, and important alternative or error flows."
               ></textarea>
+            </div>
+
+            <!-- Update by Prompt — inside Create a process card, below Prompt From Scratch -->
+            <hr class="section-divider" />
+
+            <div>
+              <div class="update-prompt-label">Update diagram by prompt</div>
+              <div class="hint" style="margin-top: 2px; margin-bottom: 8px;">
+                Describe a change in plain language — the AI will update the
+                canvas structure accordingly.
+              </div>
+              <div class="update-prompt-row">
+                <textarea
+                  .value=${this.updateInstruction}
+                  @input=${this.onUpdateInstructionChange}
+                  placeholder='e.g. "Add a notification step after the approval action" or "Rename actor Student to Applicant"'
+                  ?disabled=${this.isUpdatingByPrompt}
+                ></textarea>
+                <button
+                  class="accent"
+                  ?disabled=${this.isUpdatingByPrompt ||
+                  !this.updateInstruction.trim()}
+                  @click=${this.onUpdateByPromptClick}
+                >
+                  ${this.isUpdatingByPrompt
+                    ? html`
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          style="animation: spin 1s linear infinite;"
+                        >
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                        </svg>
+                        Updating…
+                      `
+                    : html`
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M12 20h9" />
+                          <path
+                            d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"
+                          />
+                        </svg>
+                        Update canvas
+                      `}
+                </button>
+              </div>
+              ${this.updateByPromptError
+                ? html`<div class="error small">${this.updateByPromptError}</div>`
+                : null}
             </div>
 
             <div class="actions">
@@ -823,6 +937,13 @@ export class AdApp extends LitElement {
           </section>
         </div>
       </div>
+
+      <style>
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      </style>
     `;
   }
 
@@ -910,6 +1031,8 @@ export class AdApp extends LitElement {
     this.promptText = '';
     this.errorMessage = '';
     this.lastSaveSucceeded = false;
+    this.updateInstruction = '';
+    this.updateByPromptError = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -958,6 +1081,11 @@ export class AdApp extends LitElement {
 
   private onTogglePlantUmlClick(): void {
     this.isPlantUmlExpanded = !this.isPlantUmlExpanded;
+  }
+
+  private onUpdateInstructionChange(e: Event): void {
+    this.updateInstruction = (e.target as HTMLTextAreaElement).value;
+    if (this.updateByPromptError) this.updateByPromptError = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -1057,6 +1185,121 @@ export class AdApp extends LitElement {
           : 'Generation failed due to an unknown error.';
     } finally {
       this.isGenerating = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Update by Prompt
+  // ---------------------------------------------------------------------------
+
+  private async onUpdateByPromptClick(): Promise<void> {
+    this.updateByPromptError = '';
+
+    const canvas = this.renderRoot?.querySelector('ad-canvas-editor') as any;
+    const rawStructure =
+      canvas && typeof canvas.getStructure === 'function'
+        ? canvas.getStructure()
+        : null;
+
+    if (
+      !rawStructure ||
+      !Array.isArray(rawStructure.actors) ||
+      rawStructure.actors.length === 0 ||
+      !Array.isArray(rawStructure.actions) ||
+      rawStructure.actions.length === 0
+    ) {
+      this.updateByPromptError =
+        'Canvas must contain at least one actor and one action before updating.';
+      return;
+    }
+
+    // Normalize canvas field names to snake_case before sending to backend
+    const currentStructure = {
+      actors: rawStructure.actors,
+      actions: (rawStructure.actions as any[]).map((a: any) => ({
+        actor: a.actor,
+        action: a.action,
+      })),
+      decisions: Array.isArray(rawStructure.decisions)
+        ? (rawStructure.decisions as any[]).map((d: any) => ({
+            condition: d.condition,
+            branch_yes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes',
+            branch_no: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No',
+            yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
+            no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
+          }))
+        : null,
+      parallel_blocks: null,
+    };
+
+    this.isUpdatingByPrompt = true;
+
+    try {
+      const payload = {
+        update_instruction: this.updateInstruction.trim(),
+        current_structure: currentStructure,
+      };
+
+      const response = await fetch(
+        'http://localhost:8000/api/v1/update-structure',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.authHeaders(),
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const updatedStructure = await response.json();
+
+      // Normalize response field names to camelCase for canvas compatibility
+      const normalizedStructure = {
+        actors: updatedStructure.actors ?? [],
+        actions: (updatedStructure.actions ?? []).map((a: any) => ({
+          actor: a.actor,
+          action: a.action,
+        })),
+        decisions: Array.isArray(updatedStructure.decisions)
+          ? updatedStructure.decisions.map((d: any) => ({
+              condition: d.condition,
+              branchyes:
+                d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+              branchno:
+                d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+              yes_action_index:
+                d.yes_action_index ?? d.yesActionIndex ?? null,
+              no_action_index:
+                d.no_action_index ?? d.noActionIndex ?? null,
+            }))
+          : null,
+        parallelblocks: null,
+      };
+
+      if (typeof canvas.setStructure === 'function') {
+        canvas.setStructure(normalizedStructure);
+      }
+
+      this.promptText = JSON.stringify(normalizedStructure, null, 2);
+      this.updateInstruction = '';
+    } catch (error: unknown) {
+      console.error('Update by prompt failed', error);
+      this.updateByPromptError =
+        error instanceof Error
+          ? `Update failed: ${error.message}`
+          : 'Update failed due to an unknown error.';
+    } finally {
+      this.isUpdatingByPrompt = false;
     }
   }
 
@@ -1161,6 +1404,8 @@ export class AdApp extends LitElement {
     this.lastSaveSucceeded = false;
     this.lastPrompt = null;
     this.promptText = '';
+    this.updateInstruction = '';
+    this.updateByPromptError = '';
   }
 }
 

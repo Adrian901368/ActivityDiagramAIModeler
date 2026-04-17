@@ -150,6 +150,41 @@ class ProcessStructureInput(BaseModel):
         return self
 
 
+class UpdateByPromptInput(BaseModel):
+    """
+    Payload for the POST /api/v1/update-structure endpoint.
+
+    Carries the current canvas structure together with a free-text instruction
+    that describes what the user wants to change in the diagram.
+    The LLM receives both and returns a modified ProcessStructureInput.
+    """
+
+    update_instruction: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description=(
+            "Free-text instruction describing the desired change, e.g. "
+            "'Add a new step after X', 'Remove the decision about Y', "
+            "'Rename actor Z to W'."
+        ),
+    )
+    current_structure: ProcessStructureInput = Field(
+        ...,
+        description=(
+            "The current canvas structure as returned by the frontend "
+            "getStructure() call. This is sent as context to the LLM."
+        ),
+    )
+
+    @field_validator("update_instruction")
+    @classmethod
+    def no_empty_instruction(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("update_instruction must not be empty")
+        return v.strip()
+
+
 # ---------------------------------------------------------------------------
 # Generation response
 # ---------------------------------------------------------------------------

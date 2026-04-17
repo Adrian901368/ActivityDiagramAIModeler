@@ -1,3 +1,5 @@
+# app/services/llm_service.py
+
 from typing import List, Dict, Any
 import json
 import logging
@@ -351,6 +353,66 @@ def generate_structured_prompt_from_text(
         model=settings.llm.model,
         messages=[system_message, user_message],
         temperature=settings.llm.temperature,
+        response_format={"type": "json_object"},
+    )
+
+    log_groq_rate_limits(response)
+
+    raw_content = response.choices[0].message.content
+
+    if isinstance(raw_content, dict):
+        return sanitize_structured_process_payload(raw_content)
+
+    parsed = json.loads(raw_content or "{}")
+    return sanitize_structured_process_payload(parsed)
+
+
+def update_structure_by_prompt(
+    current_structure: Dict[str, Any],
+    update_instruction: str,
+) -> Dict[str, Any]:
+    """
+    Apply a free-text update instruction to an existing process structure.
+
+    Input:
+    - current_structure: the current ProcessStructureInput serialized as dict
+      (as returned by the frontend getStructure() call)
+    - update_instruction: free-text describing the desired change, e.g.
+      "Add a new step after X", "Remove the decision about Y", "Rename actor Z to W"
+
+    Output:
+    - dict matching the ProcessStructureInput schema (sanitized via
+      sanitize_structured_process_payload before returning)
+
+    This function does NOT generate PlantUML. The caller (endpoint) is
+    responsible for passing the result to setStructure() on the canvas,
+    after which the standard PlantUML generation flow can be triggered
+    separately if needed.
+    """
+    from app.core.prompts import build_update_diagram_system_prompt
+
+    client = get_llm_client()
+
+    system_prompt = build_update_diagram_system_prompt(current_structure)
+
+    system_message = {
+        "role": "system",
+        "content": system_prompt,
+    }
+
+    user_message = {
+        "role": "user",
+        "content": (
+            f"UPDATE INSTRUCTION:\n{update_instruction.strip()}\n\n"
+            "Return the complete updated structure as a single valid JSON object. "
+            "Do not include any explanation or surrounding text."
+        ),
+    }
+
+    response = client.chat.completions.create(
+        model=settings.llm.model,
+        messages=[system_message, user_message],
+        temperature=0.0,
         response_format={"type": "json_object"},
     )
 
