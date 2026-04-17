@@ -1,5 +1,6 @@
+// app/frontend/src/ad-canvas-editor.ts
 import { LitElement, html, css, svg, type TemplateResult } from 'lit';
- import { customElement, state, property } from 'lit/decorators.js';
+import { customElement, state, property } from 'lit/decorators.js';
 
 type NodeType = 'action' | 'decision' | 'merge';
 type VirtualNodeKind = 'start' | 'merge' | 'final';
@@ -129,7 +130,6 @@ interface ConnectingDragState {
   currentY: number;
 }
 
-// EdgePanelDragState removed because panels are static now
 type DragState = RealDragState | VirtualDragState | DividerDragState | ConnectingDragState;
 
 type BranchSide = 'yes' | 'no';
@@ -295,7 +295,7 @@ export class AdCanvasEditor extends LitElement {
       max-width: 360px;
       line-height: 1.4;
     }
-    
+
     .static-panel {
       background: #ffffff;
       border: 1px solid #d1d5db;
@@ -381,8 +381,8 @@ export class AdCanvasEditor extends LitElement {
 
     .panel-delete-btn:hover {
       background: #fee2e2;
-    }  
-    
+    }
+
     .lane-panel {
       display: flex;
       align-items: center;
@@ -472,7 +472,6 @@ export class AdCanvasEditor extends LitElement {
 
   @property({ type: Boolean, reflect: true }) readOnly = false;
 
-
   private minLaneWidth = 260;
   private lanePaddingX = 120;
   private laneHeaderHeight = 44;
@@ -488,6 +487,10 @@ export class AdCanvasEditor extends LitElement {
   private finalGap = 40;
 
   private isInternalChange = false;
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
 
   public setStructure(structure: ProcessStructureInputDto | null): void {
     if (this.isInternalChange) return;
@@ -514,7 +517,7 @@ export class AdCanvasEditor extends LitElement {
 
     let currentY = baseY;
 
-    // PASS 1: Lay out all action nodes sequentially using running currentY
+    // PASS 1: lay out all action nodes sequentially
     structure.actions?.forEach((a, index) => {
       const laneIndex = this.actors.findIndex((actor) => actor === a.actor);
       const lane = laneIndex === -1 ? 0 : laneIndex;
@@ -536,7 +539,7 @@ export class AdCanvasEditor extends LitElement {
       currentY += dynamicHeight + this.nodeVerticalGap;
     });
 
-    // PASS 2: Place decision nodes relative to their source/target actions
+    // PASS 2: place decision nodes relative to their source/target actions
     structure.decisions?.forEach((d) => {
       const yesIndex = d.yes_action_index !== undefined && d.yes_action_index !== null ? d.yes_action_index : null;
       const noIndex = d.no_action_index !== undefined && d.no_action_index !== null ? d.no_action_index : null;
@@ -600,7 +603,7 @@ export class AdCanvasEditor extends LitElement {
       }
     });
 
-    // PASS 3: Push branch target action nodes safely below their decision hexagon
+    // PASS 3: push branch target action nodes safely below their decision hexagon
     const decisionNodes = nodes.filter((n) => n.type === 'decision') as DecisionCanvasNode[];
     decisionNodes.forEach((d) => {
       const yesAction = d.yesActionIndex !== null && d.yesActionIndex !== undefined
@@ -627,7 +630,7 @@ export class AdCanvasEditor extends LitElement {
       }
     });
 
-    // PASS 4: Normalization - ensure NO action node sits above a previous one in sequence
+    // PASS 4: normalization — ensure no action node sits above a previous one in sequence
     const sortedByIndex = [...actionNodesByIndex.values()].sort(
       (a, b) => (a.actionIndex ?? 0) - (b.actionIndex ?? 0)
     );
@@ -644,9 +647,17 @@ export class AdCanvasEditor extends LitElement {
     this.startOffset = { x: 0, y: 0 };
     this.finalOffset = { x: 0, y: 0 };
     this.mergeOffsets = {};
-    this.explicitEdges = []; // Generated diagrams use sequential logic only
+    this.explicitEdges = [];
     this.nodes = [...nodes].sort((a, b) => a.y - b.y);
     this.emitStructureChange();
+  }
+
+  /**
+   * Alias for setStructure — used by ad-app.ts when applying
+   * an "update-by-prompt" response from the backend.
+   */
+  public loadStructure(structure: ProcessStructureInputDto | null): void {
+    this.setStructure(structure);
   }
 
   public getStructure(): ProcessStructureInputDto {
@@ -676,8 +687,8 @@ export class AdCanvasEditor extends LitElement {
           condition: d.condition || '',
           branchyes: d.yesText || '',
           branchno: d.noText || '',
-          yesactionindex: getNewIndex(d.yesActionIndex),
-          noactionindex: getNewIndex(d.noActionIndex),
+          yes_action_index: getNewIndex(d.yesActionIndex),
+          no_action_index: getNewIndex(d.noActionIndex),
         };
       });
 
@@ -685,77 +696,80 @@ export class AdCanvasEditor extends LitElement {
       actors,
       actions,
       decisions: decisions.length ? decisions : null,
-      parallelblocks: null
+      parallelblocks: null,
     };
   }
 
   public getFullState(): Record<string, unknown> {
-      return {
-        actors: [...this.actors],
-        nodes: this.nodes.map((n) => ({ ...n })),
-        laneWidths: [...this.laneWidths],
-        startOffset: { ...this.startOffset },
-        finalOffset: { ...this.finalOffset },
-        mergeOffsets: Object.fromEntries(
-          Object.entries(this.mergeOffsets).map(([k, v]) => [k, { ...v }])
-        ),
-        explicitEdges: this.explicitEdges.map((e) => ({ ...e })),
-        deletedEdgeIds: [...this.deletedEdgeIds],
-        deletedMergeIds: [...this.deletedMergeIds],
-      };
-    }
+    return {
+      actors: [...this.actors],
+      nodes: this.nodes.map((n) => ({ ...n })),
+      laneWidths: [...this.laneWidths],
+      startOffset: { ...this.startOffset },
+      finalOffset: { ...this.finalOffset },
+      mergeOffsets: Object.fromEntries(
+        Object.entries(this.mergeOffsets).map(([k, v]) => [k, { ...v }])
+      ),
+      explicitEdges: this.explicitEdges.map((e) => ({ ...e })),
+      deletedEdgeIds: [...this.deletedEdgeIds],
+      deletedMergeIds: [...this.deletedMergeIds],
+    };
+  }
 
   public setFullState(state: Record<string, unknown> | null): void {
-      if (!state) return;
+    if (!state) return;
 
-      if (Array.isArray(state.actors)) {
-        this.actors = state.actors as string[];
-      }
-      if (Array.isArray(state.nodes)) {
-        this.nodes = state.nodes as CanvasNode[];
-      }
-      if (Array.isArray(state.laneWidths) && state.laneWidths.length > 0) {
-        this.laneWidths = state.laneWidths as number[];
-      } else {
-        this.syncLaneWidths(this.actors.length);
-      }
-      if (state.startOffset && typeof state.startOffset === 'object') {
-        this.startOffset = state.startOffset as Point;
-      } else {
-        this.startOffset = { x: 0, y: 0 };
-      }
-      if (state.finalOffset && typeof state.finalOffset === 'object') {
-        this.finalOffset = state.finalOffset as Point;
-      } else {
-        this.finalOffset = { x: 0, y: 0 };
-      }
-      if (state.mergeOffsets && typeof state.mergeOffsets === 'object' && !Array.isArray(state.mergeOffsets)) {
-        this.mergeOffsets = state.mergeOffsets as Record<string, Point>;
-      } else {
-        this.mergeOffsets = {};
-      }
-      if (Array.isArray(state.explicitEdges)) {
-        this.explicitEdges = state.explicitEdges as ExplicitEdge[];
-      } else {
-        this.explicitEdges = [];
-      }
-      if (Array.isArray(state.deletedEdgeIds)) {
-        this.deletedEdgeIds = state.deletedEdgeIds as string[];
-      } else {
-        this.deletedEdgeIds = [];
-      }
-      if (Array.isArray(state.deletedMergeIds)) {
-        this.deletedMergeIds = state.deletedMergeIds as string[];
-      } else {
-        this.deletedMergeIds = [];
-      }
-
-      // Reset transient UI state
-      this.selectedNodeId = null;
-      this.selectedEdge = null;
-      this.hoveredNodeId = null;
-      this.dragState = null;
+    if (Array.isArray(state.actors)) {
+      this.actors = state.actors as string[];
     }
+    if (Array.isArray(state.nodes)) {
+      this.nodes = state.nodes as CanvasNode[];
+    }
+    if (Array.isArray(state.laneWidths) && state.laneWidths.length > 0) {
+      this.laneWidths = state.laneWidths as number[];
+    } else {
+      this.syncLaneWidths(this.actors.length);
+    }
+    if (state.startOffset && typeof state.startOffset === 'object') {
+      this.startOffset = state.startOffset as Point;
+    } else {
+      this.startOffset = { x: 0, y: 0 };
+    }
+    if (state.finalOffset && typeof state.finalOffset === 'object') {
+      this.finalOffset = state.finalOffset as Point;
+    } else {
+      this.finalOffset = { x: 0, y: 0 };
+    }
+    if (state.mergeOffsets && typeof state.mergeOffsets === 'object' && !Array.isArray(state.mergeOffsets)) {
+      this.mergeOffsets = state.mergeOffsets as Record<string, Point>;
+    } else {
+      this.mergeOffsets = {};
+    }
+    if (Array.isArray(state.explicitEdges)) {
+      this.explicitEdges = state.explicitEdges as ExplicitEdge[];
+    } else {
+      this.explicitEdges = [];
+    }
+    if (Array.isArray(state.deletedEdgeIds)) {
+      this.deletedEdgeIds = state.deletedEdgeIds as string[];
+    } else {
+      this.deletedEdgeIds = [];
+    }
+    if (Array.isArray(state.deletedMergeIds)) {
+      this.deletedMergeIds = state.deletedMergeIds as string[];
+    } else {
+      this.deletedMergeIds = [];
+    }
+
+    this.selectedNodeId = null;
+    this.selectedEdge = null;
+    this.hoveredNodeId = null;
+    this.dragState = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
 
   private emitStructureChange(): void {
     this.isInternalChange = true;
@@ -814,7 +828,7 @@ export class AdCanvasEditor extends LitElement {
       height,
       halfW: estimatedWidth / 2,
       halfH: height / 2,
-      edgeOffset
+      edgeOffset,
     };
   }
 
@@ -833,126 +847,131 @@ export class AdCanvasEditor extends LitElement {
     return this.nodeHeight;
   }
 
-    private getDefaultLaneWidth(): number {
-      let maxNodeHalfWidth = 90; // fallback for empty canvas
+  private getDefaultLaneWidth(): number {
+    let maxNodeHalfWidth = 90;
 
-      for (const node of this.nodes) {
-        if (node.type === 'action') {
-          const lines = this.wrapText((node as ActionCanvasNode).text || '', 22);
-          const dims = this.getActionDimensions(lines);
-          maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.width / 2);
-        } else if (node.type === 'decision') {
-          const lines = this.wrapText((node as DecisionCanvasNode).condition || '', 18);
-          const dims = this.getDecisionDimensions(lines);
-          maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.halfW);
-        }
+    for (const node of this.nodes) {
+      if (node.type === 'action') {
+        const lines = this.wrapText((node as ActionCanvasNode).text || '', 22);
+        const dims = this.getActionDimensions(lines);
+        maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.width / 2);
+      } else if (node.type === 'decision') {
+        const lines = this.wrapText((node as DecisionCanvasNode).condition || '', 18);
+        const dims = this.getDecisionDimensions(lines);
+        maxNodeHalfWidth = Math.max(maxNodeHalfWidth, dims.halfW);
       }
-
-      // Both yes/no branches must fit: (branchOffset + nodeHalfWidth) on each side + 20% padding
-      const base = (this.branchOffset + maxNodeHalfWidth) * 2;
-      return Math.round(base * 1.2);
     }
+
+    const base = (this.branchOffset + maxNodeHalfWidth) * 2;
+    return Math.round(base * 1.2);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   override render() {
-      const laneCount = Math.max(this.actors.length, 1);
-      const totalWidth = this.computeTotalWidth(laneCount);
-      const layout = this.buildDerivedLayout();
+    const laneCount = Math.max(this.actors.length, 1);
+    const totalWidth = this.computeTotalWidth(laneCount);
+    const layout = this.buildDerivedLayout();
 
-      const realNodeBottom = this.nodes.length
-        ? Math.max(...this.nodes.map((n) => n.y)) + Math.max(this.nodeHeight, this.decisionSize)
-        : this.laneHeaderHeight + 240;
+    const realNodeBottom = this.nodes.length
+      ? Math.max(...this.nodes.map((n) => n.y)) + Math.max(this.nodeHeight, this.decisionSize)
+      : this.laneHeaderHeight + 240;
 
-      const mergeBottom = layout.mergeNodes.length
-        ? Math.max(...layout.mergeNodes.map((m) => m.y + this.mergeSize / 2))
-        : 0;
+    const mergeBottom = layout.mergeNodes.length
+      ? Math.max(...layout.mergeNodes.map((m) => m.y + this.mergeSize / 2))
+      : 0;
 
-      const startBottom = layout.startNode ? layout.startNode.y + 12 : 0;
-      const finalBottom = layout.finalNode ? layout.finalNode.y + 14 : 0;
+    const startBottom = layout.startNode ? layout.startNode.y + 12 : 0;
+    const finalBottom = layout.finalNode ? layout.finalNode.y + 14 : 0;
 
-      const totalHeight = Math.max(
-        540,
-        realNodeBottom + 140,
-        mergeBottom + 140,
-        startBottom + 80,
-        finalBottom + 100,
-      );
+    const totalHeight = Math.max(
+      540,
+      realNodeBottom + 140,
+      mergeBottom + 140,
+      startBottom + 80,
+      finalBottom + 100,
+    );
 
-      return html`
-          <div class="wrapper">
-            <div class="header">
-              <div class="header-title">
-                <div class="title">Canvas editor</div>
-                <div class="subtitle">
-                  ${this.readOnly
-                    ? 'Read-only view.'
-                    : 'Drag actions, decisions, control nodes, and swimlane dividers.'}
-                </div>
-              </div>
-              ${!this.readOnly ? html`
-                <div class="toolbar">
-                  <button class="btn" @click=${this.onAddMergeClick}>
-                    + Add merge node
-                  </button>
-                  <button class="btn" @click=${this.onAddActionClick}>
-                    + Add action node
-                  </button>
-                  <button class="btn" @click=${this.onAddDecisionClick}>
-                    + Add decision node
-                  </button>
-                  <button class="btn" @click=${this.onAddSwimlaneClick}>
-                    + Add swimlane
-                  </button>
-                </div>
-              ` : null}
-            </div>
-        
-            ${!this.readOnly ? this.renderLanePanel() : null}
-        
-            <div class="editor-body">
-              <div
-                class="canvas-container"
-                @pointermove=${!this.readOnly ? this.onCanvasPointerMove : null}
-                @pointerup=${!this.readOnly ? this.onCanvasPointerUp : null}
-                @pointerleave=${!this.readOnly ? this.onCanvasPointerUp : null}
-                @pointerdown=${!this.readOnly ? this.onCanvasPointerDown : null}
-              >
-                <svg
-                  viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
-                  width=${totalWidth}
-                  height=${totalHeight}
-                >
-                  ${this.renderSwimlanes(totalHeight)}
-                  ${this.renderEdges(layout)}
-                  ${this.renderVirtualNodes(layout)}
-                  ${!this.readOnly ? this.renderConnectingLine() : null}
-                  ${this.renderNodes()}
-                </svg>
-        
-                ${this.actors.length === 0 && this.nodes.length === 0
-                  ? html`
-                      <div class="empty-overlay">
-                        <div class="empty-text">
-                          No actors or actions yet.
-                        </div>
-                      </div>
-                    `
-                  : null}
-              </div>
-        
-              ${!this.readOnly ? html`
-                <div class="sidebar">
-                  ${this.renderActionPanel()}
-                  ${this.renderDecisionPanel()}
-                  ${this.renderEdgePanel()}
-                  ${this.renderMergePanel()}
-                </div>
-              ` : null}
+    return html`
+      <div class="wrapper">
+        <div class="header">
+          <div class="header-title">
+            <div class="title">Canvas editor</div>
+            <div class="subtitle">
+              ${this.readOnly
+                ? 'Read-only view.'
+                : 'Drag actions, decisions, control nodes, and swimlane dividers.'}
             </div>
           </div>
-        `;
-    }
+          ${!this.readOnly ? html`
+            <div class="toolbar">
+              <button class="btn" @click=${this.onAddMergeClick}>
+                + Add merge node
+              </button>
+              <button class="btn" @click=${this.onAddActionClick}>
+                + Add action node
+              </button>
+              <button class="btn" @click=${this.onAddDecisionClick}>
+                + Add decision node
+              </button>
+              <button class="btn" @click=${this.onAddSwimlaneClick}>
+                + Add swimlane
+              </button>
+            </div>
+          ` : null}
+        </div>
 
-  // --- NEW SIDEBAR PANELS ---
+        ${!this.readOnly ? this.renderLanePanel() : null}
+
+        <div class="editor-body">
+          <div
+            class="canvas-container"
+            @pointermove=${!this.readOnly ? this.onCanvasPointerMove : null}
+            @pointerup=${!this.readOnly ? this.onCanvasPointerUp : null}
+            @pointerleave=${!this.readOnly ? this.onCanvasPointerUp : null}
+            @pointerdown=${!this.readOnly ? this.onCanvasPointerDown : null}
+          >
+            <svg
+              viewBox=${`0 0 ${totalWidth} ${totalHeight}`}
+              width=${totalWidth}
+              height=${totalHeight}
+            >
+              ${this.renderSwimlanes(totalHeight)}
+              ${this.renderEdges(layout)}
+              ${this.renderVirtualNodes(layout)}
+              ${!this.readOnly ? this.renderConnectingLine() : null}
+              ${this.renderNodes()}
+            </svg>
+
+            ${this.actors.length === 0 && this.nodes.length === 0
+              ? html`
+                  <div class="empty-overlay">
+                    <div class="empty-text">
+                      No actors or actions yet.
+                    </div>
+                  </div>
+                `
+              : null}
+          </div>
+
+          ${!this.readOnly ? html`
+            <div class="sidebar">
+              ${this.renderActionPanel()}
+              ${this.renderDecisionPanel()}
+              ${this.renderEdgePanel()}
+              ${this.renderMergePanel()}
+            </div>
+          ` : null}
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sidebar panels
+  // ---------------------------------------------------------------------------
 
   private renderActionPanel() {
     const node = this.nodes.find((n) => n.id === this.selectedNodeId);
@@ -1079,7 +1098,7 @@ export class AdCanvasEditor extends LitElement {
             ${isActive ? 'Selected flow connection' : 'Select an edge to edit'}
           </label>
         </div>
-        
+
         ${isActive ? html`
           <div class="panel-divider"></div>
           <div class="panel-delete-btn" @click="${this.onDeleteSelectedEdge}">
@@ -1090,8 +1109,7 @@ export class AdCanvasEditor extends LitElement {
     `;
   }
 
-  // --- SVG RENDERING ---
-    private renderMergePanel() {
+  private renderMergePanel() {
     let isActive = false;
     let isVirtual = false;
     let actor = '';
@@ -1138,26 +1156,84 @@ export class AdCanvasEditor extends LitElement {
     `;
   }
 
-  private onAddMergeClick(): void {
-      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-      if (!this.actors.length) {
-        this.actors = actors;
-        this.syncLaneWidths(actors.length);
-      }
-      const { x, y } = this.getNewNodePosition();
+  // ---------------------------------------------------------------------------
+  // Toolbar handlers
+  // ---------------------------------------------------------------------------
 
-      this.nodes = [
-        ...this.nodes,
-        {
-          id: this.generateNodeId(),
-          type: 'merge',
-          actor: actors[actors.length - 1],
-          x,
-          y,
-        } as MergeCanvasNode,
-      ];
-      this.emitStructureChange();
+  private onAddMergeClick(): void {
+    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+    if (!this.actors.length) {
+      this.actors = actors;
+      this.syncLaneWidths(actors.length);
+    }
+    const { x, y } = this.getNewNodePosition();
+
+    this.nodes = [
+      ...this.nodes,
+      {
+        id: this.generateNodeId(),
+        type: 'merge',
+        actor: actors[actors.length - 1],
+        x,
+        y,
+      } as MergeCanvasNode,
+    ];
+    this.emitStructureChange();
   }
+
+  private onAddActionClick(): void {
+    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+    if (!this.actors.length) {
+      this.actors = actors;
+      this.syncLaneWidths(actors.length);
+    }
+    const { x, y } = this.getNewNodePosition();
+
+    this.nodes = [
+      ...this.nodes,
+      {
+        id: this.generateNodeId(),
+        type: 'action',
+        actor: actors[actors.length - 1],
+        text: 'New action',
+        x,
+        y,
+        actionIndex: null,
+      } as ActionCanvasNode,
+    ];
+    this.emitStructureChange();
+  }
+
+  private onAddDecisionClick(): void {
+    const actors = this.actors.length > 0 ? this.actors : ['Actor'];
+    if (!this.actors.length) {
+      this.actors = actors;
+    }
+    this.syncLaneWidths(actors.length);
+    const { x, y } = this.getNewNodePosition();
+
+    this.nodes = [
+      ...this.nodes,
+      {
+        id: this.generateNodeId(),
+        type: 'decision',
+        actor: actors[actors.length - 1],
+        condition: 'Decision',
+        yesText: 'Yes branch',
+        noText: 'No branch',
+        yesActionIndex: null,
+        noActionIndex: null,
+        sourceActionIndex: null,
+        x,
+        y,
+      } as DecisionCanvasNode,
+    ];
+    this.emitStructureChange();
+  }
+
+  // ---------------------------------------------------------------------------
+  // SVG rendering
+  // ---------------------------------------------------------------------------
 
   private renderSwimlanes(totalHeight: number) {
     const lanes = this.actors.length ? this.actors : ['Lane 1'];
@@ -1196,112 +1272,112 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private renderNodes() {
-      return svg`${this.nodes.map((node) => {
-        const isSelected = this.selectedNodeId === node.id;
-        const isHovered = this.hoveredNodeId === node.id;
-    
-        const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#9ca3af';
-        const strokeWidth = isHovered || isSelected ? '2.5' : '1.5';
-        const fillColor = isHovered ? '#f0fdf4' : isSelected ? '#eff6ff' : '#ffffff';
-    
-        if (node.type === 'action') {
-          const actionNode = node as ActionCanvasNode;
-          const rawText = actionNode.text || 'New action';
-          const lines = this.wrapText(rawText, 22);
-          const dims = this.getActionDimensions(lines);
-          const x = node.x - dims.width / 2;
-          const y = node.y - dims.height / 2;
-          const startYOffset = -((lines.length - 1) * 14) / 2;
-          const portY = node.y + dims.height / 2;
-    
-          return svg`
-            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
-              <rect x="${x}" y="${y}" rx="6" ry="6" width="${dims.width}" height="${dims.height}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-              <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
-                fill="#111827" font-size="11" font-family="system-ui, -apple-system, sans-serif">
-                ${lines.map((line, index) => svg`
-                  <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
-                `)}
-              </text>
-              ${isSelected && !this.readOnly ? svg`
-                <circle data-port-type="action-out" data-port-node-id="${node.id}"
-                  cx="${node.x}" cy="${portY}" r="6"
-                  fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
-                  style="cursor: crosshair;" />
-              ` : null}
-            </g>
-          `;
-        } else if (node.type === 'decision') {
-          const d = node as DecisionCanvasNode;
-          const rawCondition = d.condition || 'Decision';
-          const lines = this.wrapText(rawCondition, 18);
-          const dims = this.getDecisionDimensions(lines);
-    
-          const points = [
-            `${node.x - dims.halfW},${node.y}`,
-            `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
-            `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
-            `${node.x + dims.halfW},${node.y}`,
-            `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
-            `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
-          ].join(' ');
-    
-          const startYOffset = -((lines.length - 1) * 14) / 2;
-    
-          return svg`
-            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
-              <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-              <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
-                fill="#111827" font-size="10" font-weight="500"
-                font-family="system-ui, -apple-system, sans-serif">
-                ${lines.map((line, index) => svg`
-                  <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
-                `)}
-              </text>
-              <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end"
-                dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">
-                ${d.yesText || 'yes'}
-              </text>
-              <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start"
-                dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">
-                ${d.noText || 'no'}
-              </text>
-              ${isSelected && !this.readOnly ? svg`
-                <circle data-port-type="decision-yes" data-port-node-id="${node.id}"
-                  cx="${node.x - dims.halfW}" cy="${node.y}" r="6"
-                  fill="#059669" stroke="#ffffff" stroke-width="1.5"
-                  style="cursor: crosshair;" />
-                <circle data-port-type="decision-no" data-port-node-id="${node.id}"
-                  cx="${node.x + dims.halfW}" cy="${node.y}" r="6"
-                  fill="#dc2626" stroke="#ffffff" stroke-width="1.5"
-                  style="cursor: crosshair;" />
-              ` : null}
-            </g>
-          `;
-        } else if (node.type === 'merge') {
-          const half = this.mergeSize / 2;
-          const points = [
-            `${node.x} ${node.y - half}`,
-            `${node.x + half} ${node.y}`,
-            `${node.x} ${node.y + half}`,
-            `${node.x - half} ${node.y}`,
-          ].join(' ');
-    
-          return svg`
-            <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
-              <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-              ${isSelected && !this.readOnly ? svg`
-                <circle data-port-type="action-out" data-port-node-id="${node.id}"
-                  cx="${node.x}" cy="${node.y + half + 4}" r="6"
-                  fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
-                  style="cursor: crosshair;" />
-              ` : null}
-            </g>
-          `;
-        }
-        return svg``;
-      })}`;
+    return svg`${this.nodes.map((node) => {
+      const isSelected = this.selectedNodeId === node.id;
+      const isHovered = this.hoveredNodeId === node.id;
+
+      const strokeColor = isHovered ? '#10b981' : isSelected ? '#3b82f6' : '#9ca3af';
+      const strokeWidth = isHovered || isSelected ? '2.5' : '1.5';
+      const fillColor = isHovered ? '#f0fdf4' : isSelected ? '#eff6ff' : '#ffffff';
+
+      if (node.type === 'action') {
+        const actionNode = node as ActionCanvasNode;
+        const rawText = actionNode.text || 'New action';
+        const lines = this.wrapText(rawText, 22);
+        const dims = this.getActionDimensions(lines);
+        const x = node.x - dims.width / 2;
+        const y = node.y - dims.height / 2;
+        const startYOffset = -((lines.length - 1) * 14) / 2;
+        const portY = node.y + dims.height / 2;
+
+        return svg`
+          <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+            <rect x="${x}" y="${y}" rx="6" ry="6" width="${dims.width}" height="${dims.height}"
+              fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
+              fill="#111827" font-size="11" font-family="system-ui, -apple-system, sans-serif">
+              ${lines.map((line, index) => svg`
+                <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
+              `)}
+            </text>
+            ${isSelected && !this.readOnly ? svg`
+              <circle data-port-type="action-out" data-port-node-id="${node.id}"
+                cx="${node.x}" cy="${portY}" r="6"
+                fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
+                style="cursor: crosshair;" />
+            ` : null}
+          </g>
+        `;
+      } else if (node.type === 'decision') {
+        const d = node as DecisionCanvasNode;
+        const rawCondition = d.condition || 'Decision';
+        const lines = this.wrapText(rawCondition, 18);
+        const dims = this.getDecisionDimensions(lines);
+
+        const points = [
+          `${node.x - dims.halfW},${node.y}`,
+          `${node.x - dims.halfW + dims.edgeOffset},${node.y - dims.halfH}`,
+          `${node.x + dims.halfW - dims.edgeOffset},${node.y - dims.halfH}`,
+          `${node.x + dims.halfW},${node.y}`,
+          `${node.x + dims.halfW - dims.edgeOffset},${node.y + dims.halfH}`,
+          `${node.x - dims.halfW + dims.edgeOffset},${node.y + dims.halfH}`,
+        ].join(' ');
+
+        const startYOffset = -((lines.length - 1) * 14) / 2;
+
+        return svg`
+          <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            <text x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central"
+              fill="#111827" font-size="10" font-weight="500"
+              font-family="system-ui, -apple-system, sans-serif">
+              ${lines.map((line, index) => svg`
+                <tspan x="${node.x}" dy="${index === 0 ? startYOffset : 14}">${line}</tspan>
+              `)}
+            </text>
+            <text x="${node.x - dims.halfW - 6}" y="${node.y - 12}" text-anchor="end"
+              dominant-baseline="middle" fill="#059669" font-size="10" font-weight="bold">
+              ${d.yesText || 'yes'}
+            </text>
+            <text x="${node.x + dims.halfW + 6}" y="${node.y - 12}" text-anchor="start"
+              dominant-baseline="middle" fill="#dc2626" font-size="10" font-weight="bold">
+              ${d.noText || 'no'}
+            </text>
+            ${isSelected && !this.readOnly ? svg`
+              <circle data-port-type="decision-yes" data-port-node-id="${node.id}"
+                cx="${node.x - dims.halfW}" cy="${node.y}" r="6"
+                fill="#059669" stroke="#ffffff" stroke-width="1.5"
+                style="cursor: crosshair;" />
+              <circle data-port-type="decision-no" data-port-node-id="${node.id}"
+                cx="${node.x + dims.halfW}" cy="${node.y}" r="6"
+                fill="#dc2626" stroke="#ffffff" stroke-width="1.5"
+                style="cursor: crosshair;" />
+            ` : null}
+          </g>
+        `;
+      } else if (node.type === 'merge') {
+        const half = this.mergeSize / 2;
+        const points = [
+          `${node.x} ${node.y - half}`,
+          `${node.x + half} ${node.y}`,
+          `${node.x} ${node.y + half}`,
+          `${node.x - half} ${node.y}`,
+        ].join(' ');
+
+        return svg`
+          <g data-node-id="${node.id}" style="cursor: ${this.readOnly ? 'default' : 'grab'};">
+            <polygon points="${points}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+            ${isSelected && !this.readOnly ? svg`
+              <circle data-port-type="action-out" data-port-node-id="${node.id}"
+                cx="${node.x}" cy="${node.y + half + 4}" r="6"
+                fill="#3b82f6" stroke="#ffffff" stroke-width="1.5"
+                style="cursor: crosshair;" />
+            ` : null}
+          </g>
+        `;
+      }
+      return svg``;
+    })}`;
   }
 
   private renderVirtualNodes(layout: DerivedLayout) {
@@ -1367,7 +1443,9 @@ export class AdCanvasEditor extends LitElement {
     return svg`${parts}`;
   }
 
-  // --- LAYOUT ENGINE ---
+  // ---------------------------------------------------------------------------
+  // Layout engine
+  // ---------------------------------------------------------------------------
 
   private buildBranchMembership(decisionNodes: DecisionCanvasNode[]): Map<number, BranchMark> {
     const membership = new Map<number, BranchMark>();
@@ -1453,7 +1531,6 @@ export class AdCanvasEditor extends LitElement {
 
       if (!yesTerminal || !noTerminal) return;
 
-      const maxTerminalY = Math.max(yesTerminal.y, noTerminal.y);
       const maxTerminalIndex = Math.max(yesTerminal.actionIndex, noTerminal.actionIndex);
 
       const nextAction = indexedActions.find((a) => {
@@ -1462,11 +1539,11 @@ export class AdCanvasEditor extends LitElement {
         return !mark;
       }) ?? null;
 
+      const maxTerminalY = Math.max(yesTerminal.y, noTerminal.y);
       const mergeBaseX = (yesTerminal.x + noTerminal.x) / 2;
       const mergeBaseY = maxTerminalY + this.mergeGap;
       const mergeOffset = this.getMergeOffset(decision.id);
 
-      // PRIDANÁ PODMIENKA: Pridaj merge node len ak nebol používateľom zmazaný
       if (!this.deletedMergeIds.includes(decision.id)) {
         mergeNodes.push({
           decisionId: decision.id,
@@ -1527,7 +1604,7 @@ export class AdCanvasEditor extends LitElement {
                     fromId: edgeMeta.fromId,
                     toId: edgeMeta.toId,
                     midX: (p1.x + p2.x) / 2,
-                    midY: (p1.y + p2.y) / 2
+                    midY: (p1.y + p2.y) / 2,
                   };
                   this.selectedNodeId = null;
                 }}" />
@@ -1563,7 +1640,7 @@ export class AdCanvasEditor extends LitElement {
     });
 
     const getH = (node: CanvasNodeBase) => {
-      if (node.type === 'action') return typeof (this as any).getNodeDynamicHeight === 'function' ? (this as any).getNodeDynamicHeight(node) : this.nodeHeight;
+      if (node.type === 'action') return this.getNodeDynamicHeight(node as CanvasNode);
       if (node.type === 'decision') return this.decisionSize;
       return this.nodeHeight;
     };
@@ -1611,9 +1688,7 @@ export class AdCanvasEditor extends LitElement {
           if (m) return { x: m.x, y: m.y, h: this.mergeSize, type: 'virtual' };
         }
         const n = this.nodes.find(x => x.id === id);
-        if (n) {
-          return { x: n.x, y: n.y, h: getH(n), type: n.type };
-        }
+        if (n) return { x: n.x, y: n.y, h: getH(n), type: n.type };
         return null;
       };
 
@@ -1627,7 +1702,6 @@ export class AdCanvasEditor extends LitElement {
         } else if (fromPos.type === 'decision' && edge.portType === 'decision-no') {
           paths.push(this.edgeBranch(fromPos.x + this.decisionSize / 2, fromPos.y, toPos.x, toPos.y - toPos.h / 2, edge as any));
         } else {
-          // Priama čiara pre všetko ostatné (action, start, final, merge)
           paths.push(this.edgeStraight(fromPos.x, fromPos.y + fromPos.h / 2, toPos.x, toPos.y - toPos.h / 2, edge as any));
         }
       });
@@ -1676,7 +1750,9 @@ export class AdCanvasEditor extends LitElement {
     return svg`${paths}`;
   }
 
-  // --- POINTER EVENTS & INTERACTION ---
+  // ---------------------------------------------------------------------------
+  // Pointer events & interaction
+  // ---------------------------------------------------------------------------
 
   private onCanvasPointerDown(event: PointerEvent): void {
     const portTarget = event.composedPath().find(
@@ -1792,7 +1868,6 @@ export class AdCanvasEditor extends LitElement {
     const virtualKind = virtualTarget.dataset.virtualKind as VirtualNodeKind;
     const virtualId = virtualTarget.dataset.virtualId ?? '';
 
-    // Zabezpečenie označenia "selektnutého" elementu aj pre virtuálne nodes
     this.selectedNodeId = virtualKind === 'merge' ? `virtual-merge-${virtualId}` : `virtual-${virtualKind}`;
     this.selectedEdge = null;
 
@@ -1881,7 +1956,6 @@ export class AdCanvasEditor extends LitElement {
       const layout = this.buildDerivedLayout();
       let hoveredId: string | null = null;
 
-      // 1. Kontrola real nodes (action / decision / merge)
       const hoveredReal = this.nodes.find((n) => {
         if (n.id === sourceNodeId) return false;
         const h = this.getNodeDynamicHeight(n);
@@ -1906,7 +1980,6 @@ export class AdCanvasEditor extends LitElement {
       if (hoveredReal) {
         hoveredId = hoveredReal.id;
       } else {
-        // 2. Kontrola virtual nodes (start / merge / final)
         if (layout.startNode && sourceNodeId !== 'virtual-start' && Math.abs(svgPoint.x - layout.startNode.x) < 20 && Math.abs(svgPoint.y - layout.startNode.y) < 20) {
           hoveredId = 'virtual-start';
         } else if (layout.finalNode && sourceNodeId !== 'virtual-final' && Math.abs(svgPoint.x - layout.finalNode.x) < 20 && Math.abs(svgPoint.y - layout.finalNode.y) < 20) {
@@ -1979,7 +2052,6 @@ export class AdCanvasEditor extends LitElement {
   private createConnection(sourceId: string, portType: string, targetId: string): void {
     const edgeId = `explicit_${sourceId}_${targetId}_${Date.now()}`;
     this.explicitEdges = [...this.explicitEdges, { id: edgeId, fromId: sourceId, toId: targetId, portType }];
-
     this.emitStructureChange();
   }
 
@@ -2049,7 +2121,9 @@ export class AdCanvasEditor extends LitElement {
     this.emitStructureChange();
   }
 
-  // --- PANEL EDIT HANDLERS ---
+  // ---------------------------------------------------------------------------
+  // Panel edit handlers
+  // ---------------------------------------------------------------------------
 
   private onPanelTextChange(nodeId: string, value: string): void {
     this.nodes = this.nodes.map((n) =>
@@ -2087,87 +2161,175 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private onPanelDeleteNode(nodeId: string): void {
-      if (nodeId.startsWith('virtual-merge-')) {
-        const decisionId = nodeId.replace('virtual-merge-', '');
-        if (!this.deletedMergeIds.includes(decisionId)) {
-          this.deletedMergeIds = [...this.deletedMergeIds, decisionId];
-        }
-        this.explicitEdges = this.explicitEdges.filter(
-          (e) => e.fromId !== nodeId && e.toId !== nodeId
-        );
-        this.selectedNodeId = null;
-        this.emitStructureChange();
-        return;
+    if (nodeId.startsWith('virtual-merge-')) {
+      const decisionId = nodeId.replace('virtual-merge-', '');
+      if (!this.deletedMergeIds.includes(decisionId)) {
+        this.deletedMergeIds = [...this.deletedMergeIds, decisionId];
       }
-
-      const nodeToDelete = this.nodes.find((n) => n.id === nodeId);
-      if (!nodeToDelete) return;
-
-      if (nodeToDelete.type === 'action') {
-        const deletedIndex = (nodeToDelete as ActionCanvasNode).actionIndex;
-
-        let remaining = this.nodes.filter((n) => n.id !== nodeId);
-
-        // Only re-index when the deleted node had a real actionIndex
-        if (deletedIndex !== null) {
-          remaining = remaining.map((n) => {
-            if (n.type !== 'action') return n;
-            const a = n as ActionCanvasNode;
-            if (a.actionIndex === null) return n;
-            if (a.actionIndex > deletedIndex) {
-              return { ...a, actionIndex: a.actionIndex - 1 };
-            }
-            return n;
-          });
-
-          remaining = remaining.map((n) => {
-            if (n.type !== 'decision') return n;
-            const d = n as DecisionCanvasNode;
-            const updateIndex = (idx: number | null): number | null => {
-              if (idx === null) return null;
-              if (idx === deletedIndex) return null;
-              if (idx > deletedIndex) return idx - 1;
-              return idx;
-            };
-            return {
-              ...d,
-              sourceActionIndex: updateIndex(d.sourceActionIndex),
-              yesActionIndex: updateIndex(d.yesActionIndex),
-              noActionIndex: updateIndex(d.noActionIndex),
-            } as DecisionCanvasNode;
-          });
-        }
-
-        // Clean up edges referencing the deleted action node
-        this.explicitEdges = this.explicitEdges.filter(
-          (e) => e.fromId !== nodeId && e.toId !== nodeId
-        );
-
-        this.nodes = remaining;
-
-      } else if (nodeToDelete.type === 'decision' || nodeToDelete.type === 'merge') {
-        this.nodes = this.nodes.filter((n) => n.id !== nodeId);
-        this.explicitEdges = this.explicitEdges.filter(
-          (e) => e.fromId !== nodeId && e.toId !== nodeId
-        );
-      }
-
+      this.explicitEdges = this.explicitEdges.filter(
+        (e) => e.fromId !== nodeId && e.toId !== nodeId
+      );
       this.selectedNodeId = null;
       this.emitStructureChange();
+      return;
     }
 
-  // --- UTILS ---
+    const nodeToDelete = this.nodes.find((n) => n.id === nodeId);
+    if (!nodeToDelete) return;
+
+    if (nodeToDelete.type === 'action') {
+      const deletedIndex = (nodeToDelete as ActionCanvasNode).actionIndex;
+
+      let remaining = this.nodes.filter((n) => n.id !== nodeId);
+
+      if (deletedIndex !== null) {
+        remaining = remaining.map((n) => {
+          if (n.type !== 'action') return n;
+          const a = n as ActionCanvasNode;
+          if (a.actionIndex === null) return n;
+          if (a.actionIndex > deletedIndex) {
+            return { ...a, actionIndex: a.actionIndex - 1 };
+          }
+          return n;
+        });
+
+        remaining = remaining.map((n) => {
+          if (n.type !== 'decision') return n;
+          const d = n as DecisionCanvasNode;
+          const updateIndex = (idx: number | null): number | null => {
+            if (idx === null) return null;
+            if (idx === deletedIndex) return null;
+            if (idx > deletedIndex) return idx - 1;
+            return idx;
+          };
+          return {
+            ...d,
+            sourceActionIndex: updateIndex(d.sourceActionIndex),
+            yesActionIndex: updateIndex(d.yesActionIndex),
+            noActionIndex: updateIndex(d.noActionIndex),
+          } as DecisionCanvasNode;
+        });
+      }
+
+      this.explicitEdges = this.explicitEdges.filter(
+        (e) => e.fromId !== nodeId && e.toId !== nodeId
+      );
+
+      this.nodes = remaining;
+
+    } else if (nodeToDelete.type === 'decision' || nodeToDelete.type === 'merge') {
+      this.nodes = this.nodes.filter((n) => n.id !== nodeId);
+      this.explicitEdges = this.explicitEdges.filter(
+        (e) => e.fromId !== nodeId && e.toId !== nodeId
+      );
+    }
+
+    this.selectedNodeId = null;
+    this.emitStructureChange();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lane management
+  // ---------------------------------------------------------------------------
+
+  private renderLanePanel() {
+    if (!this.actors.length) return null;
+
+    return html`
+      <div class="lane-panel">
+        <span class="lane-panel-label">Lanes</span>
+        ${this.actors.map(
+          (actor, index) => html`
+            <div class="lane-item">
+              <input
+                class="lane-name-input"
+                type="text"
+                .value=${actor}
+                @change=${(e: Event) =>
+                  this.onRenameSwimlane(index, (e.target as HTMLInputElement).value)}
+                title="Rename swimlane"
+              />
+              <button
+                class="lane-delete-btn"
+                ?disabled=${this.actors.length <= 1}
+                @click=${() => this.onDeleteSwimlaneClick(index)}
+                title="Delete swimlane"
+              >
+                ×
+              </button>
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private onAddSwimlaneClick(): void {
+    const newName = `Lane ${this.actors.length + 1}`;
+    const currentWidths = this.getLaneWidths(this.actors.length);
+    this.actors = [...this.actors, newName];
+    this.laneWidths = [...currentWidths, this.getDefaultLaneWidth()];
+    this.emitStructureChange();
+  }
+
+  private onDeleteSwimlaneClick(index: number): void {
+    if (this.actors.length <= 1) return;
+
+    const removedActor = this.actors[index];
+    const currentWidths = this.getLaneWidths(this.actors.length);
+    const removedWidth = currentWidths[index];
+
+    const newActors = this.actors.filter((_, i) => i !== index);
+    const newWidths = currentWidths.filter((_, i) => i !== index);
+    const newStarts = this.computeLaneStartsFromWidths(newWidths);
+
+    const fallbackActor = newActors[0];
+    const fallbackX = newStarts[0] + newWidths[0] / 2;
+
+    this.nodes = this.nodes.map((node) => {
+      if (node.actor === removedActor) {
+        return { ...node, actor: fallbackActor, x: fallbackX };
+      }
+      const actorIdx = this.actors.indexOf(node.actor);
+      if (actorIdx > index) {
+        return { ...node, x: node.x - removedWidth };
+      }
+      return node;
+    });
+
+    this.actors = newActors;
+    this.laneWidths = newWidths;
+    this.emitStructureChange();
+  }
+
+  private onRenameSwimlane(index: number, newName: string): void {
+    const trimmed = newName.trim() || `Lane ${index + 1}`;
+    const oldName = this.actors[index];
+
+    this.nodes = this.nodes.map((node) =>
+      node.actor === oldName ? { ...node, actor: trimmed } : node
+    );
+
+    const newActors = [...this.actors];
+    newActors[index] = trimmed;
+    this.actors = newActors;
+    this.emitStructureChange();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Utils
+  // ---------------------------------------------------------------------------
 
   private syncLaneWidths(count: number): void {
-      if (this.laneWidths.length === count) return;
-      const w = this.getDefaultLaneWidth();
-      this.laneWidths = Array.from({ length: Math.max(count, 1) }, () => w);
+    if (this.laneWidths.length === count) return;
+    const w = this.getDefaultLaneWidth();
+    this.laneWidths = Array.from({ length: Math.max(count, 1) }, () => w);
   }
 
   private getLaneWidths(count: number): number[] {
-      if (this.laneWidths.length === count && count > 0) return this.laneWidths;
-      const w = this.getDefaultLaneWidth();
-      return Array.from({ length: Math.max(count, 1) }, () => w);
+    if (this.laneWidths.length === count && count > 0) return this.laneWidths;
+    const w = this.getDefaultLaneWidth();
+    return Array.from({ length: Math.max(count, 1) }, () => w);
   }
 
   private computeLaneStartsFromWidths(widths: number[]): number[] {
@@ -2216,160 +2378,21 @@ export class AdCanvasEditor extends LitElement {
     return bestIndex;
   }
 
-  private onAddActionClick(): void {
-      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-      if (!this.actors.length) {
-        this.actors = actors;
-        this.syncLaneWidths(actors.length);
-      }
-      const { x, y } = this.getNewNodePosition();
-
-      this.nodes = [
-        ...this.nodes,
-        {
-          id: this.generateNodeId(),
-          type: 'action',
-          actor: actors[actors.length - 1],
-          text: 'New action',
-          x,
-          y,
-          actionIndex: null,
-        } as ActionCanvasNode,
-      ];
-      this.emitStructureChange();
-  }
-
-  private onAddDecisionClick(): void {
-      const actors = this.actors.length > 0 ? this.actors : ['Actor'];
-      if (!this.actors.length) {
-        this.actors = actors;
-      }
-      this.syncLaneWidths(actors.length);
-      const { x, y } = this.getNewNodePosition();
-
-      this.nodes = [
-        ...this.nodes,
-        {
-          id: this.generateNodeId(),
-          type: 'decision',
-          actor: actors[actors.length - 1],
-          condition: 'Decision',
-          yesText: 'Yes branch',
-          noText: 'No branch',
-          yesActionIndex: null,
-          noActionIndex: null,
-          sourceActionIndex: null,
-          x,
-          y,
-        } as DecisionCanvasNode,
-      ];
-      this.emitStructureChange();
-  }
-
   private getNewNodePosition(): { x: number; y: number } {
-      // Y: vertical center of the current scroll view
-      const container = this.renderRoot.querySelector('.canvas-container') as HTMLElement | null;
-      let y = this.laneHeaderHeight + 200;
-      if (container) {
-        const visibleCenterY = container.scrollTop + container.clientHeight / 2;
-        y = Math.max(this.laneHeaderHeight + 60, visibleCenterY);
-      }
-
-      // X: center of the rightmost (last) swimlane
-      const count = Math.max(this.actors.length, 1);
-      const widths = this.getLaneWidths(count);
-      const starts = this.computeLaneStartsFromWidths(widths);
-      const lastIndex = widths.length - 1;
-      const x = starts[lastIndex] + widths[lastIndex] + 50;
-
-      return { x, y };
-  }
-
-    private renderLanePanel() {
-    if (!this.actors.length) return null;
-
-    return html`
-      <div class="lane-panel">
-        <span class="lane-panel-label">Lanes</span>
-        ${this.actors.map(
-          (actor, index) => html`
-            <div class="lane-item">
-              <input
-                class="lane-name-input"
-                type="text"
-                .value=${actor}
-                @change=${(e: Event) =>
-                  this.onRenameSwimlane(index, (e.target as HTMLInputElement).value)}
-                title="Rename swimlane"
-              />
-              <button
-                class="lane-delete-btn"
-                ?disabled=${this.actors.length <= 1}
-                @click=${() => this.onDeleteSwimlaneClick(index)}
-                title="Delete swimlane"
-              >
-                ×
-              </button>
-            </div>
-          `
-        )}
-      </div>
-    `;
-  }
-
-  private onAddSwimlaneClick(): void {
-    const newName = `Lane ${this.actors.length + 1}`;
-    const currentWidths = this.getLaneWidths(this.actors.length);
-    this.actors = [...this.actors, newName];
-    this.laneWidths = [...currentWidths, this.getDefaultLaneWidth()];
-    this.emitStructureChange();
-  }
-
-  private onDeleteSwimlaneClick(index: number): void {
-      if (this.actors.length <= 1) return;
-
-      const removedActor = this.actors[index];
-      const currentWidths = this.getLaneWidths(this.actors.length);
-      const removedWidth = currentWidths[index];
-
-      const newActors = this.actors.filter((_, i) => i !== index);
-      const newWidths = currentWidths.filter((_, i) => i !== index);
-      const newStarts = this.computeLaneStartsFromWidths(newWidths);
-
-      const fallbackActor = newActors[0];
-      const fallbackX = newStarts[0] + newWidths[0] / 2;
-
-      this.nodes = this.nodes.map((node) => {
-        // Nodes from the removed lane → move to lane 0
-        if (node.actor === removedActor) {
-          return { ...node, actor: fallbackActor, x: fallbackX };
-        }
-        // Nodes in lanes AFTER the removed one → shift left by the removed lane's width
-        const actorIdx = this.actors.indexOf(node.actor);
-        if (actorIdx > index) {
-          return { ...node, x: node.x - removedWidth };
-        }
-        // Nodes in lanes BEFORE the removed one → untouched
-        return node;
-      });
-
-      this.actors = newActors;
-      this.laneWidths = newWidths;
-      this.emitStructureChange();
+    const container = this.renderRoot.querySelector('.canvas-container') as HTMLElement | null;
+    let y = this.laneHeaderHeight + 200;
+    if (container) {
+      const visibleCenterY = container.scrollTop + container.clientHeight / 2;
+      y = Math.max(this.laneHeaderHeight + 60, visibleCenterY);
     }
 
-  private onRenameSwimlane(index: number, newName: string): void {
-    const trimmed = newName.trim() || `Lane ${index + 1}`;
-    const oldName = this.actors[index];
+    const count = Math.max(this.actors.length, 1);
+    const widths = this.getLaneWidths(count);
+    const starts = this.computeLaneStartsFromWidths(widths);
+    const lastIndex = widths.length - 1;
+    const x = starts[lastIndex] + widths[lastIndex] + 50;
 
-    this.nodes = this.nodes.map((node) =>
-      node.actor === oldName ? { ...node, actor: trimmed } : node
-    );
-
-    const newActors = [...this.actors];
-    newActors[index] = trimmed;
-    this.actors = newActors;
-    this.emitStructureChange();
+    return { x, y };
   }
 
   private generateNodeId(): string {

@@ -66,3 +66,97 @@ def build_activity_diagram_system_prompt() -> str:
     - Do NOT wrap the output in any additional formatting.
     """
     return dedent(prompt).strip()
+
+
+def build_update_diagram_system_prompt(current_structure: dict) -> str:
+    """
+    System prompt for updating an existing process structure (canvas state)
+    based on a free-text user instruction.
+
+    Unlike build_activity_diagram_system_prompt(), this prompt does NOT generate
+    PlantUML. Instead, it takes the current ProcessStructureInputDto as context
+    and returns a modified version of the same JSON structure.
+
+    The returned JSON must conform to the ProcessStructureInput schema:
+    {
+        "actors": [...],
+        "actions": [{"actor": "...", "action": "..."}],
+        "decisions": [
+            {
+                "condition": "...",
+                "branchyes": "...",
+                "branchno": "...",
+                "yesactionindex": <int|null>,
+                "noactionindex": <int|null>
+            }
+        ],
+        "parallelblocks": null
+    }
+    """
+    import json
+    structure_json = json.dumps(current_structure, ensure_ascii=False, indent=2)
+
+    prompt = f"""
+    You are an expert UML Activity Diagram structure editor.
+
+    You will receive:
+    1. The CURRENT STRUCTURE of an existing process diagram (as JSON).
+    2. An UPDATE INSTRUCTION from the user describing what to change.
+
+    Your task:
+    - Apply the requested changes to the current structure.
+    - Return the COMPLETE updated structure as a single valid JSON object.
+    - Do NOT return partial updates — always return the full structure.
+
+    Output requirements:
+    - Output ONLY a valid JSON object. No markdown, no backticks, no explanations.
+    - The JSON must strictly follow this schema:
+      {{
+        "actors": ["Actor1", "Actor2", ...],
+        "actions": [
+          {{"actor": "ActorName", "action": "Action description"}},
+          ...
+        ],
+        "decisions": [
+          {{
+            "condition": "Condition text?",
+            "branchyes": "Yes branch outcome",
+            "branchno": "No branch outcome",
+            "yesactionindex": <zero-based index into actions, or null>,
+            "noactionindex": <zero-based index into actions, or null>
+          }},
+          ...
+        ],
+        "parallelblocks": null
+      }}
+
+    Schema rules you MUST follow:
+    - "actors" must contain at least 1 non-empty string. No duplicates.
+    - "actions" must contain at least 1 item. Each item must have "actor" and "action".
+    - Every action's "actor" value must be present in the "actors" list.
+    - "decisions" is optional — use null or omit if there are no decisions.
+    - "yesactionindex" and "noactionindex" are zero-based indices into the "actions"
+      array. Set to null if the branch does not point to a specific action.
+    - If a decision index becomes invalid after edits (out of bounds), set it to null.
+    - "parallelblocks" must always be null (parallel blocks are not supported in this
+      update flow).
+
+    Editing guidelines:
+    - When the user says "add action/step", append it to the relevant position in
+      "actions" and update any affected decision indices accordingly.
+    - When the user says "remove action/step", delete it and shift all decision
+      indices that referenced higher-indexed actions down by 1. Set to null any
+      index that pointed directly at the removed action.
+    - When the user says "add actor/swimlane", append it to "actors".
+    - When the user says "remove actor/swimlane", remove it from "actors" and
+      reassign all its actions to the first remaining actor.
+    - When the user says "rename", update the relevant text fields only.
+    - Preserve all unchanged parts of the structure exactly as they are.
+    - Do not invent new elements that are not requested or implied by the instruction.
+
+    CURRENT STRUCTURE:
+    {structure_json}
+
+    Apply the following UPDATE INSTRUCTION and return the complete updated JSON:
+    """
+    return dedent(prompt).strip()

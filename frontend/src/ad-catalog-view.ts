@@ -325,6 +325,22 @@ export class AdCatalogView extends LitElement {
       background: rgba(15, 23, 42, 0.6);
     }
 
+    button.accent {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+      border: none;
+      box-shadow:
+        0 10px 24px rgba(14, 165, 233, 0.4),
+        0 0 1px rgba(99, 102, 241, 0.6);
+    }
+
+    button.accent:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow:
+        0 14px 32px rgba(14, 165, 233, 0.6),
+        0 0 1px rgba(99, 102, 241, 0.9);
+    }
+
     button:disabled {
       opacity: 0.6;
       cursor: default;
@@ -564,6 +580,39 @@ export class AdCatalogView extends LitElement {
       margin-bottom: 2px;
     }
 
+    .section-divider {
+      border: none;
+      border-top: 1px solid rgba(55, 65, 81, 0.5);
+      margin: 6px 0 2px;
+    }
+
+    .update-prompt-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+
+    .update-prompt-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .update-prompt-row textarea {
+      min-height: 52px;
+      max-height: 120px;
+      resize: vertical;
+      flex: 1 1 0;
+    }
+
+    .update-prompt-row button {
+      flex-shrink: 0;
+      align-self: flex-end;
+    }
+
     /* Make Public Modal */
     .modal-backdrop {
       position: fixed;
@@ -697,6 +746,11 @@ export class AdCatalogView extends LitElement {
 
   @state() private isPlantUmlExpanded = false;
   @state() private isDetailCodeExpanded = false;
+
+  // Update by Prompt state (edit view)
+  @state() private updateInstruction = '';
+  @state() private isUpdatingByPrompt = false;
+  @state() private updateByPromptError = '';
 
   // Make Public modal state
   @state() private showMakePublicModal = false;
@@ -1231,7 +1285,7 @@ export class AdCatalogView extends LitElement {
               ?disabled=${!canPublish || this.isMutatingVersion}
               @click=${() => this.onPublishVersionClick(v)}
             >
-              Publish
+              Make Active
             </button>
             <button
               class="tiny-btn danger"
@@ -1445,6 +1499,66 @@ export class AdCatalogView extends LitElement {
             ></textarea>
           </div>
 
+          <!-- Update by Prompt — below Prompt from Scratch, above actions -->
+          <hr class="section-divider" />
+
+          <div>
+            <div class="update-prompt-label">Update diagram by prompt</div>
+            <div style="font-size: 12px; color: #6b7280; margin-top: 2px; margin-bottom: 8px;">
+              Describe a change in plain language — the AI will update the
+              canvas structure accordingly.
+            </div>
+            <div class="update-prompt-row">
+              <textarea
+                .value=${this.updateInstruction}
+                @input=${this.onUpdateInstructionChange}
+                placeholder='e.g. "Add a notification step after the approval action" or "Rename actor Student to Applicant"'
+                ?disabled=${this.isUpdatingByPrompt}
+              ></textarea>
+              <button
+                class="accent"
+                ?disabled=${this.isUpdatingByPrompt ||
+                !this.updateInstruction.trim()}
+                @click=${this.onUpdateByPromptClick}
+              >
+                ${this.isUpdatingByPrompt
+                  ? html`
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        style="animation: spin 1s linear infinite;"
+                      >
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      Updating…
+                    `
+                  : html`
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path d="M12 20h9" />
+                        <path
+                          d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"
+                        />
+                      </svg>
+                      Update canvas
+                    `}
+              </button>
+            </div>
+            ${this.updateByPromptError
+              ? html`<div class="error small">${this.updateByPromptError}</div>`
+              : null}
+          </div>
+
           ${this.editError
             ? html`<div class="error">${this.editError}</div>`
             : null}
@@ -1537,6 +1651,13 @@ export class AdCatalogView extends LitElement {
             : null}
         </section>
       </div>
+
+      <style>
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      </style>
     `;
   }
 
@@ -1662,44 +1783,44 @@ export class AdCatalogView extends LitElement {
   }
 
   private async onConfirmMakePublic(mode: MakePublicMode): Promise<void> {
-      if (!this.processDetail) return;
+    if (!this.processDetail) return;
 
-      this.isMakingPublic = true;
-      this.makePublicError = '';
+    this.isMakingPublic = true;
+    this.makePublicError = '';
 
-      try {
-        const resp = await fetch(
-          `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}/make-public`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...this.authHeaders(),
-            },
-            body: JSON.stringify({ mode }),
-          }
-        );
-
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => null);
-          const detail =
-            err && typeof err.detail === 'string'
-              ? err.detail
-              : `Backend returned status ${resp.status}`;
-          throw new Error(detail);
+    try {
+      const resp = await fetch(
+        `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}/make-public`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.authHeaders(),
+          },
+          body: JSON.stringify({ mode }),
         }
+      );
 
-        this.showMakePublicModal = false;
-      } catch (error: unknown) {
-        console.error('Failed to make process public', error);
-        this.makePublicError =
-          error instanceof Error
-            ? `Failed to publish: ${error.message}`
-            : 'Failed to publish process.';
-      } finally {
-        this.isMakingPublic = false;
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${resp.status}`;
+        throw new Error(detail);
       }
+
+      this.showMakePublicModal = false;
+    } catch (error: unknown) {
+      console.error('Failed to make process public', error);
+      this.makePublicError =
+        error instanceof Error
+          ? `Failed to publish: ${error.message}`
+          : 'Failed to publish process.';
+    } finally {
+      this.isMakingPublic = false;
     }
+  }
 
   // ---------------------------------------------------------------------------
   // Handlers: delete / publish
@@ -1790,7 +1911,7 @@ export class AdCatalogView extends LitElement {
   }
 
   private async onPublishVersionClick(v: CatalogVersion): Promise<void> {
-    if (!confirm(`Publish version #${v.version_number}?`)) return;
+    if (!confirm(`Make Active version #${v.version_number}?`)) return;
 
     this.isMutatingVersion = true;
     try {
@@ -1847,6 +1968,8 @@ export class AdCatalogView extends LitElement {
       base?.prompt != null ? JSON.stringify(base.prompt, null, 2) : '';
     this.editError = '';
     this.isPlantUmlExpanded = false;
+    this.updateInstruction = '';
+    this.updateByPromptError = '';
 
     this.initCanvasForEdit(base?.canvas_state ?? null, this.editPromptJson);
   }
@@ -1868,6 +1991,8 @@ export class AdCatalogView extends LitElement {
       v.prompt != null ? JSON.stringify(v.prompt, null, 2) : '';
     this.editError = '';
     this.isPlantUmlExpanded = false;
+    this.updateInstruction = '';
+    this.updateByPromptError = '';
 
     this.initCanvasForEdit(v.canvas_state ?? null, this.editPromptJson);
   }
@@ -1880,6 +2005,8 @@ export class AdCatalogView extends LitElement {
     this.isGenerating = false;
     this.editPromptJson = null;
     this.editPromptText = '';
+    this.updateInstruction = '';
+    this.updateByPromptError = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -1958,6 +2085,132 @@ export class AdCatalogView extends LitElement {
     this.editVersionDescription = (event.target as HTMLTextAreaElement).value;
   }
 
+  private onUpdateInstructionChange(event: Event): void {
+    this.updateInstruction = (event.target as HTMLTextAreaElement).value;
+    if (this.updateByPromptError) this.updateByPromptError = '';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Update by Prompt handler
+  // ---------------------------------------------------------------------------
+
+  private async onUpdateByPromptClick(): Promise<void> {
+    this.updateByPromptError = '';
+
+    const canvas = this.renderRoot?.querySelector(
+      'ad-canvas-editor:not([data-version-id])'
+    ) as any;
+    const rawStructure =
+      canvas && typeof canvas.getStructure === 'function'
+        ? canvas.getStructure()
+        : null;
+
+    if (
+      !rawStructure ||
+      !Array.isArray(rawStructure.actors) ||
+      rawStructure.actors.length === 0 ||
+      !Array.isArray(rawStructure.actions) ||
+      rawStructure.actions.length === 0
+    ) {
+      this.updateByPromptError =
+        'Canvas must contain at least one actor and one action before updating.';
+      return;
+    }
+
+    // Normalize canvas field names to snake_case before sending to backend
+    const currentStructure = {
+      actors: rawStructure.actors,
+      actions: (rawStructure.actions as any[]).map((a: any) => ({
+        actor: a.actor,
+        action: a.action,
+      })),
+      decisions: Array.isArray(rawStructure.decisions)
+        ? (rawStructure.decisions as any[]).map((d: any) => ({
+            condition: d.condition,
+            branch_yes: d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes',
+            branch_no: d.branch_no ?? d.branchno ?? d.branchNo ?? 'No',
+            yes_action_index: d.yes_action_index ?? d.yesActionIndex ?? null,
+            no_action_index: d.no_action_index ?? d.noActionIndex ?? null,
+          }))
+        : null,
+      parallel_blocks: null,
+    };
+
+    this.isUpdatingByPrompt = true;
+
+    try {
+      const payload = {
+        update_instruction: this.updateInstruction.trim(),
+        current_structure: currentStructure,
+      };
+
+      const response = await fetch(
+        'http://localhost:8000/api/v1/update-structure',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.authHeaders(),
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const updatedStructure = await response.json();
+
+      // Normalize response field names to camelCase for canvas compatibility
+      const normalizedStructure = {
+        actors: updatedStructure.actors ?? [],
+        actions: (updatedStructure.actions ?? []).map((a: any) => ({
+          actor: a.actor,
+          action: a.action,
+        })),
+        decisions: Array.isArray(updatedStructure.decisions)
+          ? updatedStructure.decisions.map((d: any) => ({
+              condition: d.condition,
+              branchyes:
+                d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+              branchno:
+                d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+              yes_action_index:
+                d.yes_action_index ?? d.yesActionIndex ?? null,
+              no_action_index:
+                d.no_action_index ?? d.noActionIndex ?? null,
+            }))
+          : null,
+        parallelblocks: null,
+      };
+
+      if (typeof canvas.setStructure === 'function') {
+        canvas.setStructure(normalizedStructure);
+      }
+
+      this.editPromptText = JSON.stringify(normalizedStructure, null, 2);
+      this.updateInstruction = '';
+    } catch (error: unknown) {
+      console.error('Update by prompt failed', error);
+      this.updateByPromptError =
+        error instanceof Error
+          ? `Update failed: ${error.message}`
+          : 'Update failed due to an unknown error.';
+    } finally {
+      this.isUpdatingByPrompt = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Generate
+  // ---------------------------------------------------------------------------
+
   private async onEditGenerateClick(): Promise<void> {
     if (!this.editMode || this.editProcessId === null || !this.processDetail) return;
 
@@ -2011,6 +2264,10 @@ export class AdCatalogView extends LitElement {
       this.isGenerating = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Save
+  // ---------------------------------------------------------------------------
 
   private async onEditSaveClick(): Promise<void> {
     if (!this.editMode || this.editProcessId === null) return;
