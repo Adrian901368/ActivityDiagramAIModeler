@@ -1,8 +1,5 @@
 """
 Application configuration loaded from environment variables (.env).
-
-This module uses simple dataclasses and python-dotenv instead of Pydantic
-settings to keep things straightforward and explicit.
 """
 
 import os
@@ -11,7 +8,6 @@ from typing import Optional, List
 
 from dotenv import load_dotenv
 
-# Load variables from .env into os.environ
 load_dotenv()
 
 
@@ -24,6 +20,14 @@ class LLMSettings:
     model: str
     base_url: str
     temperature: float
+
+
+@dataclass
+class VisionSettings:
+    """Configuration for the vision-capable model (Google Gemini)."""
+
+    api_key: str
+    model: str
 
 
 @dataclass
@@ -42,6 +46,7 @@ class Settings:
     """Global application settings."""
 
     llm: LLMSettings
+    vision: VisionSettings
     auth: AuthSettings
     database_url: str
     plantuml_server_url: str
@@ -56,12 +61,14 @@ def get_settings() -> Settings:
       GROQ_API_KEY=...
       LLM_MODEL=llama-3.3-70b-versatile
       LLM_BASE_URL=https://api.groq.com/openai/v1
-      LLM_TEMPERATURE=0.1
-      DATABASE_URL=sqlite:///./app.db        (optional)
+      LLM_TEMPERATURE=0.0
+      VISION_API_KEY=...         (Google Gemini API key)
+      VISION_MODEL=gemini-2.0-flash
+      DATABASE_URL=sqlite:///./app.db
       PLANTUML_SERVER_BASE=https://www.plantuml.com/plantuml
     """
 
-    # --- LLM configuration ---
+    # --- LLM (Groq) configuration ---
     provider = os.getenv("LLM_PROVIDER", "groq").strip() or "groq"
 
     api_key: Optional[str] = os.getenv("GROQ_API_KEY")
@@ -77,7 +84,7 @@ def get_settings() -> Settings:
         "https://api.groq.com/openai/v1",
     ).strip()
 
-    temperature_str = os.getenv("LLM_TEMPERATURE", "0.1").strip()
+    temperature_str = os.getenv("LLM_TEMPERATURE", "0.0").strip()
     try:
         temperature = float(temperature_str)
     except ValueError as exc:
@@ -93,7 +100,22 @@ def get_settings() -> Settings:
         temperature=temperature,
     )
 
-    # --- Auth configuration (academic test accounts, STU Bratislava faculties) ---
+    # --- Vision (Gemini) configuration ---
+    vision_api_key: Optional[str] = os.getenv("VISION_API_KEY")
+    if not vision_api_key:
+        raise ValueError(
+            "VISION_API_KEY is not set. "
+            "Add your Google Gemini API key to .env as VISION_API_KEY."
+        )
+
+    vision_model = os.getenv("VISION_MODEL", "gemini-2.0-flash").strip()
+
+    vision_settings = VisionSettings(
+        api_key=vision_api_key,
+        model=vision_model,
+    )
+
+    # --- Auth configuration (academic test accounts, STU Bratislava) ---
     auth_settings = AuthSettings(
         allowed_emails=[
             "xfiit@stuba.sk",
@@ -115,11 +137,11 @@ def get_settings() -> Settings:
 
     return Settings(
         llm=llm_settings,
+        vision=vision_settings,
         auth=auth_settings,
         database_url=database_url,
         plantuml_server_url=plantuml_server_url,
     )
 
 
-# Module-level singleton for places that import `settings` directly
 settings = get_settings()

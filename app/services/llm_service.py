@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 import json
 import logging
 
+import google.generativeai as genai
 from openai import OpenAI
 
 from app.core.config import settings
@@ -17,13 +18,20 @@ MAX_STRUCTURED_ACTIONS = 100
 
 def get_llm_client() -> OpenAI:
     """
-    Create an OpenAI-compatible client for Groq (or another provider)
-    using configuration from app.core.config.settings.
+    Create an OpenAI-compatible client for Groq using configuration from settings.
     """
     return OpenAI(
         api_key=settings.llm.api_key,
         base_url=settings.llm.base_url,
     )
+
+
+def get_vision_client() -> genai.GenerativeModel:
+    """
+    Create a Gemini vision client using VISION_API_KEY and VISION_MODEL from settings.
+    """
+    genai.configure(api_key=settings.vision.api_key)
+    return genai.GenerativeModel(settings.vision.model)
 
 
 def log_groq_rate_limits(response: Any) -> None:
@@ -104,8 +112,8 @@ def sanitize_structured_process_payload(payload: Dict[str, Any]) -> Dict[str, An
                 continue
 
             condition = item.get("condition")
-            branch_yes = item.get("branch_yes")
-            branch_no = item.get("branch_no")
+            branch_yes = item.get("branch_yes") or item.get("branchyes")
+            branch_no = item.get("branch_no") or item.get("branchno")
 
             if not isinstance(condition, str) or not condition.strip():
                 continue
@@ -114,8 +122,8 @@ def sanitize_structured_process_payload(payload: Dict[str, Any]) -> Dict[str, An
             if not isinstance(branch_no, str) or not branch_no.strip():
                 continue
 
-            yes_action_index = item.get("yes_action_index")
-            no_action_index = item.get("no_action_index")
+            yes_action_index = item.get("yes_action_index") or item.get("yesactionindex")
+            no_action_index = item.get("no_action_index") or item.get("noactionindex")
 
             if not isinstance(yes_action_index, int):
                 yes_action_index = None
@@ -212,45 +220,6 @@ def generate_structured_prompt_from_text(
 ) -> Dict[str, Any]:
     """
     Transform a free-text process description into a structured JSON description.
-
-    Input:
-    - description: free text description of the process (any language)
-    - process_name, domain: optional meta-information
-    - language: hint for input language (default "en")
-
-    Output:
-    - dict with the following keys:
-
-      "process_name": str,   # optional helper field
-      "actors": [str],       # actor names, in English
-      "actions": [           # actions, in English
-        {"actor": str, "action": str},
-        ...
-      ],
-      "decisions": [         # explicit decision points, in English
-        {
-          "condition": str,
-          "branch_yes": str,
-          "branch_no": str,
-          "yes_action_index": int | null,
-          "no_action_index": int | null
-        },
-        ...
-      ],
-      "parallel_blocks": [   # optional
-        {
-          "actions": [
-            {"actor": str, "action": str}
-          ]
-        }
-      ]
-
-    IMPORTANT:
-    - Even if the input description is in Slovak or any other language,
-      ALL actor names, action descriptions, decision conditions and
-      branch texts MUST be written in clear English.
-    - For any real branching logic in the process, you MUST create at least
-      one entry in "decisions".
     """
     client = get_llm_client()
 
@@ -367,27 +336,63 @@ def generate_structured_prompt_from_text(
     return sanitize_structured_process_payload(parsed)
 
 
+def generate_structured_prompt_from_image(
+    image_bytes: bytes,
+    image_media_type: str = "image/png",
+) -> Dict[str, Any]:
+    """
+    Extract a ProcessStructureInput-compatible JSON from a PNG/JPEG image
+    of an existing UML Activity Diagram using a 2-step pipeline:
+
+    Step 1 — Gemini Vision (free tier):
+        Analyze the image and return a detailed textual description of the
+        diagram (actors, actions, decisions, flow).
+
+    Step 2 — Groq (generate_structured_prompt_from_text):
+        Convert the textual description into a structured JSON matching
+        the ProcessStructureInput schema.
+    """
+    vision_model = get_vision_client()
+
+    vision_prompt = (
+        "You are analyzing a UML Activity Diagram in swimlane style.\n\n"
+        "Your task is to describe the diagram in plain English with maximum detail:\n"
+        "1. List all swimlane names (these are the actors/participants).\n"
+        "2. List all action steps in order, specifying which actor performs each step.\n"
+        "3. List all decision points (diamond shapes) with their condition text "
+        "and what happens in the YES branch and NO branch.\n"
+        "4. Describe the overall flow from start to end.\n\n"
+        "Be precise and complete. Do not skip any node or branch. "
+        "Write the description in clear English."
+    )
+
+    try:
+        image_part = {"mime_type": image_media_type, "data": image_bytes}
+        vision_response = vision_model.generate_content([vision_prompt, image_part])
+        text_description = vision_response.text
+    except Exception as exc:
+        raise RuntimeError(f"Gemini vision call failed: {exc}") from exc
+
+    if not text_description or not text_description.strip():
+        raise RuntimeError(
+            "Gemini returned an empty description for the image. "
+            "Please try a clearer or higher-resolution image."
+        )
+
+    logger.info(
+        "[Vision] Gemini extracted description (%d chars), passing to Groq.",
+        len(text_description),
+    )
+
+    return generate_structured_prompt_from_text(description=text_description)
+
+
 def update_structure_by_prompt(
     current_structure: Dict[str, Any],
     update_instruction: str,
 ) -> Dict[str, Any]:
     """
-    Apply a free-text update instruction to an existing process structure.
-
-    Input:
-    - current_structure: the current ProcessStructureInput serialized as dict
-      (as returned by the frontend getStructure() call)
-    - update_instruction: free-text describing the desired change, e.g.
-      "Add a new step after X", "Remove the decision about Y", "Rename actor Z to W"
-
-    Output:
-    - dict matching the ProcessStructureInput schema (sanitized via
-      sanitize_structured_process_payload before returning)
-
-    This function does NOT generate PlantUML. The caller (endpoint) is
-    responsible for passing the result to setStructure() on the canvas,
-    after which the standard PlantUML generation flow can be triggered
-    separately if needed.
+    Apply a free-text update instruction to an existing process structure using Groq.
     """
     from app.core.prompts import build_update_diagram_system_prompt
 

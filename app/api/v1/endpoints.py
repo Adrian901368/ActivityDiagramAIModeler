@@ -11,6 +11,8 @@ from fastapi import (
     Response,
     Query,
     Body,
+    UploadFile,
+    File,
 )
 
 from pydantic import BaseModel, Field
@@ -21,6 +23,7 @@ from app.services import catalog_service
 from app.services.llm_service import (
     generate_simple_response,
     generate_structured_prompt_from_text,
+    generate_structured_prompt_from_image,
     update_structure_by_prompt,
 )
 from app.services.plantuml_validator import (
@@ -155,18 +158,18 @@ def _build_process_structure_from_structured_dict(
             continue
 
         condition = (item.get("condition") or "").strip()
-        yes = (item.get("branch_yes") or "").strip()
-        no = (item.get("branch_no") or "").strip()
+        yes = (item.get("branch_yes") or item.get("branchyes") or "").strip()
+        no = (item.get("branch_no") or item.get("branchno") or "").strip()
 
         yes_index_raw = (
             item.get("yes_action_index")
             if "yes_action_index" in item
-            else item.get("yesActionIndex")
+            else item.get("yesactionindex") or item.get("yesActionIndex")
         )
         no_index_raw = (
             item.get("no_action_index")
             if "no_action_index" in item
-            else item.get("noActionIndex")
+            else item.get("noactionindex") or item.get("noActionIndex")
         )
 
         def _to_optional_int(value: Any) -> Optional[int]:
@@ -290,7 +293,7 @@ async def generate_activity_diagram(
             "content": (
                 "You will receive a JSON object that describes a business process. "
                 "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
-                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                "Respond ONLY with PlantUML code. Here is the JSON:\\\\n"
                 f"{user_content}"
             ),
         },
@@ -415,6 +418,78 @@ async def generate_process_structure_from_text(
 
 
 @router.post(
+    "/generate-structure-from-image",
+    response_model=ProcessStructureInput,
+    responses={
+        400: {"model": ErrorResponse},
+        415: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+    summary="Extract structured process JSON from a PNG image of an activity diagram",
+    tags=["generation"],
+)
+async def generate_process_structure_from_image(
+    file: UploadFile = File(
+        ...,
+        description="PNG image of an existing UML Activity Diagram (swimlane canvas style)",
+    ),
+) -> ProcessStructureInput:
+    """
+    Upload a PNG image of an existing UML Activity Diagram and extract its
+    structure as a ProcessStructureInput JSON.
+
+    The image is sent to a vision-capable LLM which reads the swimlane labels,
+    action nodes, and decision diamonds and returns the equivalent JSON structure.
+    The result can be loaded directly into the canvas editor via setStructure().
+
+    This endpoint does NOT generate PlantUML and does NOT save anything to the database.
+    Accepted MIME types: image/png, image/jpeg, image/webp.
+    """
+    allowed_types = {"image/png", "image/jpeg", "image/webp"}
+    content_type = (file.content_type or "").lower()
+    if content_type not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{content_type}'. Accepted: {', '.join(sorted(allowed_types))}.",
+        )
+
+    try:
+        image_bytes = await file.read()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read uploaded file: {exc}") from exc
+
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        structured: Dict[str, Any] = generate_structured_prompt_from_image(
+            image_bytes=image_bytes,
+            image_media_type=content_type,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM image-to-structure call failed: {exc}",
+        ) from exc
+
+    if not structured.get("actors") or not structured.get("actions"):
+        raise HTTPException(
+            status_code=500,
+            detail="LLM could not extract a valid structure from the image. Please try a clearer image.",
+        )
+
+    try:
+        process_structure = _build_process_structure_from_structured_dict(structured)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Extracted structure failed validation: {exc}",
+        ) from exc
+
+    return process_structure
+
+
+@router.post(
     "/generate-from-text",
     response_model=GenerateResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
@@ -487,7 +562,7 @@ async def generate_activity_diagram_from_text(
             "content": (
                 "You will receive a JSON object that describes a business process. "
                 "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
-                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                "Respond ONLY with PlantUML code. Here is the JSON:\\\\n"
                 f"{user_content}"
             ),
         },
@@ -573,7 +648,7 @@ async def save_version_from_structure(
             "content": (
                 "You will receive a JSON object that describes a business process. "
                 "Generate the UML Activity Diagram in PlantUML syntax based on this JSON. "
-                "Respond ONLY with PlantUML code. Here is the JSON:\n"
+                "Respond ONLY with PlantUML code. Here is the JSON:\\\\n"
                 f"{user_content}"
             ),
         },

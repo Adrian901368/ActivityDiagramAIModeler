@@ -520,6 +520,55 @@ export class AdApp extends LitElement {
         0 14px 32px rgba(14, 165, 233, 0.6),
         0 0 1px rgba(99, 102, 241, 0.9);
     }
+
+    /* Image import */
+    .image-import-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .image-import-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #9ca3af;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      border-radius: 999px;
+      padding: 9px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition:
+        background 0.12s ease,
+        color 0.12s ease;
+    }
+
+    .image-import-label:hover {
+      background: rgba(30, 41, 59, 0.9);
+      color: #d1d5db;
+    }
+
+    .image-import-label.disabled {
+      opacity: 0.6;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    input[type='file'] {
+      display: none;
+    }
+
+    .image-import-filename {
+      font-size: 12px;
+      color: #6b7280;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
   `;
 
   // ---------------------------------------------------------------------------
@@ -577,6 +626,11 @@ export class AdApp extends LitElement {
   @state() private updateInstruction = '';
   @state() private isUpdatingByPrompt = false;
   @state() private updateByPromptError = '';
+
+  // Image import state
+  @state() private isImportingImage = false;
+  @state() private importImageError = '';
+  @state() private importImageFilename = '';
 
   // ---------------------------------------------------------------------------
   // Auth helpers
@@ -774,7 +828,68 @@ export class AdApp extends LitElement {
               ></textarea>
             </div>
 
-            <!-- Update by Prompt — inside Create a process card, below Prompt From Scratch -->
+            <!-- Import diagram from image -->
+            <hr class="section-divider" />
+
+            <div>
+              <div class="update-prompt-label">Import diagram from image</div>
+              <div class="hint" style="margin-top: 2px; margin-bottom: 8px;">
+                Upload a PNG or JPG of an existing activity diagram — the AI
+                will extract its structure and load it into the canvas editor.
+              </div>
+              <div class="image-import-row">
+                <label
+                  class="image-import-label ${this.isImportingImage ? 'disabled' : ''}"
+                  for="imageImportInput"
+                >
+                  ${this.isImportingImage
+                    ? html`
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          style="animation: spin 1s linear infinite;"
+                        >
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                        </svg>
+                        Extracting…
+                      `
+                    : html`
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                          <circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21 15 16 10 5 21"/>
+                        </svg>
+                        Upload image
+                      `}
+                </label>
+                <input
+                  id="imageImportInput"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  ?disabled=${this.isImportingImage}
+                  @change=${this.onImageImportChange}
+                />
+                ${this.importImageFilename
+                  ? html`<span class="image-import-filename">${this.importImageFilename}</span>`
+                  : null}
+              </div>
+              ${this.importImageError
+                ? html`<div class="error small">${this.importImageError}</div>`
+                : null}
+            </div>
+
+            <!-- Update by Prompt -->
             <hr class="section-divider" />
 
             <div>
@@ -1033,6 +1148,8 @@ export class AdApp extends LitElement {
     this.lastSaveSucceeded = false;
     this.updateInstruction = '';
     this.updateByPromptError = '';
+    this.importImageFilename = '';
+    this.importImageError = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -1086,6 +1203,89 @@ export class AdApp extends LitElement {
   private onUpdateInstructionChange(e: Event): void {
     this.updateInstruction = (e.target as HTMLTextAreaElement).value;
     if (this.updateByPromptError) this.updateByPromptError = '';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Image import handler
+  // ---------------------------------------------------------------------------
+
+  private async onImageImportChange(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    // Reset the input value so re-uploading the same file triggers change event
+    input.value = '';
+
+    if (!file) return;
+
+    this.importImageError = '';
+    this.importImageFilename = file.name;
+    this.isImportingImage = true;
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        'http://localhost:8000/api/v1/generate-structure-from-image',
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+
+      // Normalize field names for canvas compatibility
+      const structure = {
+        actors: data.actors ?? [],
+        actions: (data.actions ?? []).map((a: any) => ({
+          actor: a.actor,
+          action: a.action,
+        })),
+        decisions: Array.isArray(data.decisions)
+          ? data.decisions.map((d: any) => ({
+              condition: d.condition,
+              branchyes:
+                d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+              branchno:
+                d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+              yes_action_index:
+                d.yes_action_index ?? d.yesActionIndex ?? null,
+              no_action_index:
+                d.no_action_index ?? d.noActionIndex ?? null,
+            }))
+          : null,
+        parallelblocks: null,
+      };
+
+      this.promptText = JSON.stringify(structure, null, 2);
+
+      const canvas = this.renderRoot?.querySelector(
+        'ad-canvas-editor'
+      ) as any;
+      if (canvas && typeof canvas.setStructure === 'function') {
+        canvas.setStructure(structure);
+      }
+    } catch (error: unknown) {
+      console.error('Image import failed', error);
+      this.importImageError =
+        error instanceof Error
+          ? `Import failed: ${error.message}`
+          : 'Import failed due to an unknown error.';
+      this.importImageFilename = '';
+    } finally {
+      this.isImportingImage = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1406,6 +1606,8 @@ export class AdApp extends LitElement {
     this.promptText = '';
     this.updateInstruction = '';
     this.updateByPromptError = '';
+    this.importImageFilename = '';
+    this.importImageError = '';
   }
 }
 
