@@ -141,73 +141,77 @@ def build_update_diagram_system_prompt(current_structure: dict) -> str:
     based on a free-text user instruction.
 
     Unlike build_activity_diagram_system_prompt(), this prompt does NOT generate
-    PlantUML. Instead, it takes the current ProcessStructureInputDto as context
+    PlantUML. Instead, it takes the current ProcessStructureInput as context
     and returns a modified version of the same JSON structure.
 
-    The returned JSON must conform to the ProcessStructureInput schema:
-    {
-        "actors": [...],
-        "actions": [{"actor": "...", "action": "..."}],
-        "decisions": [
-            {
-                "condition": "...",
-                "branchyes": "...",
-                "branchno": "...",
-                "yesactionindex": <int|null>,
-                "noactionindex": <int|null>
-            }
-        ],
-        "parallelblocks": null
-    }
+    Field names MUST use snake_case to match sanitize_structured_process_payload:
+      branch_yes, branch_no, yes_action_index, no_action_index
     """
     import json
     structure_json = json.dumps(current_structure, ensure_ascii=False, indent=2)
 
     prompt = f"""
     You are an expert UML Activity Diagram structure editor.
-
+    
     You will receive:
     1. The CURRENT STRUCTURE of an existing process diagram (as JSON).
     2. An UPDATE INSTRUCTION from the user describing what to change.
-
+    
     Your task:
     - Apply the requested changes to the current structure.
     - Return the COMPLETE updated structure as a single valid JSON object.
     - Do NOT return partial updates — always return the full structure.
-
+    
     Output requirements:
     - Output ONLY a valid JSON object. No markdown, no backticks, no explanations.
     - The JSON must strictly follow this schema:
-      {{
-        "actors": ["Actor1", "Actor2", ...],
-        "actions": [
-          {{"actor": "ActorName", "action": "Action description"}},
-          ...
-        ],
-        "decisions": [
-          {{
-            "condition": "Condition text?",
-            "branchyes": "Yes branch outcome",
-            "branchno": "No branch outcome",
-            "yesactionindex": <zero-based index into actions, or null>,
-            "noactionindex": <zero-based index into actions, or null>
-          }},
-          ...
-        ],
-        "parallelblocks": null
-      }}
-
+    {{
+      "actors": ["Actor1", "Actor2", ...],
+      "actions": [
+        {{"actor": "ActorName", "action": "Action description"}},
+        ...
+      ],
+      "decisions": [
+        {{
+          "condition": "Condition text?",
+          "branch_yes": "Yes branch outcome",
+          "branch_no": "No branch outcome",
+          "yes_action_index": <integer or null>,
+          "no_action_index": <integer or null>
+        }},
+        ...
+      ],
+      "parallel_blocks": null
+    }}
+    
+    CRITICAL field name rules — you MUST use exactly these key names:
+    - "branch_yes"       (NOT branchyes, NOT branchYes)
+    - "branch_no"        (NOT branchno, NOT branchNo)
+    - "yes_action_index" (NOT yesactionindex, NOT yesActionIndex)
+    - "no_action_index"  (NOT noactionindex, NOT noActionIndex)
+    - "parallel_blocks"  (NOT parallelblocks, NOT parallelBlocks)
+    
     Schema rules you MUST follow:
     - "actors" must contain at least 1 non-empty string. No duplicates.
     - "actions" must contain at least 1 item. Each item must have "actor" and "action".
     - Every action's "actor" value must be present in the "actors" list.
     - "decisions" is optional — use null or omit if there are no decisions.
-    - "yesactionindex" and "noactionindex" are zero-based indices into the "actions"
-      array. Set to null if the branch does not point to a specific action.
+    - "yes_action_index" and "no_action_index" are zero-based indices into the
+      "actions" array. Set to null if the branch does not point to a specific action.
     - If a decision index becomes invalid after edits (out of bounds), set it to null.
-    - "parallelblocks" must always be null (parallel blocks are not supported in this
+    - "parallel_blocks" must always be null (parallel blocks are not supported in this
       update flow).
-
+    
+    Decision adding rules:
+    - When the user says "add decision/condition", create a new entry in "decisions"
+      with the correct condition, branch_yes, branch_no texts.
+    - Set yes_action_index to the zero-based index of the action the YES branch points to.
+    - Set no_action_index to the zero-based index of the action the NO branch points to.
+    - If the user specifies which actions the branches connect to, look them up by
+      their description in the current "actions" array and use their index.
+    - If you cannot determine the correct index with confidence, use null.
+    - Never invent an index that is out of range (>= length of actions array).
+    
     Editing guidelines:
     - When the user says "add action/step", append it to the relevant position in
       "actions" and update any affected decision indices accordingly.
@@ -220,10 +224,10 @@ def build_update_diagram_system_prompt(current_structure: dict) -> str:
     - When the user says "rename", update the relevant text fields only.
     - Preserve all unchanged parts of the structure exactly as they are.
     - Do not invent new elements that are not requested or implied by the instruction.
-
+    
     CURRENT STRUCTURE:
     {structure_json}
-
+    
     Apply the following UPDATE INSTRUCTION and return the complete updated JSON:
     """
     return dedent(prompt).strip()
