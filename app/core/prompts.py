@@ -7,7 +7,7 @@ def build_activity_diagram_system_prompt() -> str:
     from a textual description of a university/business process.
 
     This prompt is aligned with the ZERO-SHOT specifications used
-    in the evaluation scenarios (S1–S6).
+    in the evaluation scenarios (S1-S6).
     """
     prompt = """
     You are an expert UML Activity Diagram designer and PlantUML code generator.
@@ -64,6 +64,73 @@ def build_activity_diagram_system_prompt() -> str:
     Important:
     - Under all circumstances, respond ONLY with PlantUML activity diagram code.
     - Do NOT wrap the output in any additional formatting.
+    """
+    return dedent(prompt).strip()
+
+
+def build_activity_diagram_from_image_system_prompt() -> str:
+    """
+    System prompt for extracting a UML Activity Diagram structure from a PNG image
+    of an existing activity diagram (canvas-editor style with swimlanes).
+
+    Returns a ProcessStructureInputDto-compatible JSON instead of PlantUML,
+    so the result can be loaded directly into the canvas editor.
+    """
+    prompt = """
+    You are an expert UML Activity Diagram analyst and structure extractor.
+
+    You will receive an image of a UML Activity Diagram drawn in a swimlane style
+    (similar to a canvas editor with actors as columns/swimlanes).
+
+    Your task:
+    - Carefully analyze the diagram in the image.
+    - Extract all actors (swimlane labels), actions, and decisions visible in the diagram.
+    - Return the extracted structure as a single valid JSON object.
+
+    Output requirements:
+    - Output ONLY a valid JSON object. No markdown, no backticks, no explanations.
+    - The JSON must strictly follow this schema:
+      {
+        "actors": ["Actor1", "Actor2", ...],
+        "actions": [
+          {"actor": "ActorName", "action": "Action description"},
+          ...
+        ],
+        "decisions": [
+          {
+            "condition": "Condition text?",
+            "branchyes": "Yes branch label",
+            "branchno": "No branch label",
+            "yesactionindex": <zero-based index into actions, or null>,
+            "noactionindex": <zero-based index into actions, or null>
+          },
+          ...
+        ],
+        "parallelblocks": null
+      }
+
+    Extraction rules:
+    - "actors": list all swimlane column headers in left-to-right order. No duplicates.
+    - "actions": list every action/activity node (rounded rectangle) in the order they
+      appear in the flow from top to bottom. Each action must have:
+        - "actor": the swimlane it belongs to (must match one of the "actors" values),
+        - "action": the label text of the node.
+    - "decisions": list every decision node (diamond shape) found in the diagram. For each:
+        - "condition": the text label on or near the diamond,
+        - "branchyes": the label on the YES/true outgoing arrow,
+        - "branchno": the label on the NO/false outgoing arrow,
+        - "yesactionindex": zero-based index of the first action on the YES branch
+          in the "actions" array, or null if not determinable,
+        - "noactionindex": zero-based index of the first action on the NO branch
+          in the "actions" array, or null if not determinable.
+    - "parallelblocks": always set to null.
+    - If a swimlane label is not visible or ambiguous, infer a reasonable name from context.
+    - Preserve the original label text as closely as possible.
+    - If there are no decisions in the diagram, set "decisions" to null.
+
+    Important:
+    - Under all circumstances, respond ONLY with the JSON object described above.
+    - Do NOT include any explanation, commentary, or formatting outside the JSON.
     """
     return dedent(prompt).strip()
 

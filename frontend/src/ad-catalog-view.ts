@@ -700,6 +700,55 @@ export class AdCatalogView extends LitElement {
       border-radius: 8px;
       padding: 7px 10px;
     }
+
+    /* Image import */
+    .image-import-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .image-import-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #9ca3af;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition:
+        background 0.12s ease,
+        color 0.12s ease;
+    }
+
+    .image-import-label:hover {
+      background: rgba(30, 41, 59, 0.9);
+      color: #d1d5db;
+    }
+
+    .image-import-label.disabled {
+      opacity: 0.6;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    input[type='file'] {
+      display: none;
+    }
+
+    .image-import-filename {
+      font-size: 12px;
+      color: #6b7280;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
   `;
 
   @property({ type: String }) userEmail = '';
@@ -756,6 +805,11 @@ export class AdCatalogView extends LitElement {
   @state() private showMakePublicModal = false;
   @state() private isMakingPublic = false;
   @state() private makePublicError = '';
+
+  // Image import state (edit view)
+  @state() private isImportingImage = false;
+  @state() private importImageError = '';
+  @state() private importImageFilename = '';
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -1301,117 +1355,115 @@ export class AdCatalogView extends LitElement {
   }
 
   private renderExpandedPlantuml() {
-      if (
-        !this.processDetail ||
-        this.expandedVersionId === null ||
-        !this.processDetail.versions.length
-      ) {
-        return null;
-      }
+    if (
+      !this.processDetail ||
+      this.expandedVersionId === null ||
+      !this.processDetail.versions.length
+    ) {
+      return null;
+    }
 
-      const v = this.processDetail.versions.find(
-        (ver) => ver.id === this.expandedVersionId
-      );
-      if (!v) return null;
+    const v = this.processDetail.versions.find(
+      (ver) => ver.id === this.expandedVersionId
+    );
+    if (!v) return null;
 
-      return html`
-        <div style="margin-top: 8px;">
-    
-          <!-- Header: "Visual diagram representation" + Download button -->
-          <div style="
+    return html`
+      <div style="margin-top: 8px;">
+
+        <div style="
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 6px;
+        ">
+          <div class="card-subtitle">Visual diagram representation</div>
+          ${v.prompt
+            ? html`<button
+                class="secondary"
+                style="font-size: 12px; padding: 6px 12px;"
+                @click=${() => this.onDownloadDiagramClick(v)}
+              >
+                Download
+              </button>`
+            : null}
+        </div>
+
+        ${v.version_description
+          ? html`<div style="
+              font-size: 13px;
+              color: #9ca3af;
+              background: rgba(15, 23, 42, 0.6);
+              border: 1px solid rgba(55, 65, 81, 0.7);
+              border-radius: 8px;
+              padding: 8px 10px;
+              margin-top: 6px;
+              margin-bottom: 4px;
+              line-height: 1.5;
+            ">
+              ${v.version_description}
+            </div>`
+          : null}
+
+        ${v.prompt
+          ? html`
+              <div
+                style="position: relative; overflow: hidden; border-radius: 8px;"
+              >
+                <ad-canvas-editor
+                  data-version-id="${v.id}"
+                  .readOnly=${true}
+                ></ad-canvas-editor>
+                <div
+                  style="
+                    position: absolute;
+                    inset: 0;
+                    z-index: 10;
+                    cursor: default;
+                    pointer-events: none;
+                  "
+                ></div>
+              </div>
+            `
+          : html`
+              <div class="placeholder small" style="margin-top: 8px;">
+                No diagram structure saved for this version.
+              </div>
+            `}
+
+        <div
+          style="
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            margin-bottom: 6px;
-          ">
-            <div class="card-subtitle">Visual diagram representation</div>
-            ${v.prompt
-              ? html`<button
-                  class="secondary"
-                  style="font-size: 12px; padding: 6px 12px;"
-                  @click=${() => this.onDownloadDiagramClick(v)}
-                >
-                  Download
-                </button>`
-              : null}
-          </div>
-    
-          ${v.version_description
-            ? html`<div style="
-                font-size: 13px;
-                color: #9ca3af;
-                background: rgba(15, 23, 42, 0.6);
-                border: 1px solid rgba(55, 65, 81, 0.7);
-                border-radius: 8px;
-                padding: 8px 10px;
-                margin-top: 6px;
-                margin-bottom: 4px;
-                line-height: 1.5;
-              ">
-                ${v.version_description}
-              </div>`
-            : null}
-    
-          ${v.prompt
-            ? html`
-                <div
-                  style="position: relative; overflow: hidden; border-radius: 8px;"
-                >
-                  <ad-canvas-editor
-                    data-version-id="${v.id}"
-                    .readOnly=${true}
-                  ></ad-canvas-editor>
-                  <div
-                    style="
-                      position: absolute;
-                      inset: 0;
-                      z-index: 10;
-                      cursor: default;
-                      pointer-events: none;
-                    "
-                  ></div>
-                </div>
-              `
-            : html`
-                <div class="placeholder small" style="margin-top: 8px;">
-                  No diagram structure saved for this version.
-                </div>
-              `}
-    
-          <!-- Footer: "Generated PlantUML" + Show/Hide code -->
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              gap: 10px;
-              margin-top: 16px;
-            "
-          >
-            <div>
-              <div class="card-subtitle">Generated PlantUML</div>
-              <div style="font-size: 11px; color: #6b7280;">
-                Inspect the PlantUML code for this version.
-              </div>
+            margin-top: 16px;
+          "
+        >
+          <div>
+            <div class="card-subtitle">Generated PlantUML</div>
+            <div style="font-size: 11px; color: #6b7280;">
+              Inspect the PlantUML code for this version.
             </div>
-            <button
-              class="secondary"
-              style="font-size: 12px; padding: 6px 12px;"
-              @click=${() => {
-                this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
-              }}
-            >
-              ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
-            </button>
           </div>
-    
-          ${this.isDetailCodeExpanded
-            ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
-            : null}
+          <button
+            class="secondary"
+            style="font-size: 12px; padding: 6px 12px;"
+            @click=${() => {
+              this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
+            }}
+          >
+            ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
+          </button>
         </div>
-      `;
-    }
+
+        ${this.isDetailCodeExpanded
+          ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
+          : null}
+      </div>
+    `;
+  }
 
   private populateCanvas(canvas: any, prompt: any): void {
     if (!prompt) return;
@@ -1519,7 +1571,51 @@ export class AdCatalogView extends LitElement {
             ></textarea>
           </div>
 
-          <!-- Update by Prompt — below Prompt from Scratch, above actions -->
+          <!-- Image import section -->
+          <hr class="section-divider" />
+
+          <div>
+            <div class="update-prompt-label">Import diagram from image</div>
+            <div style="font-size: 12px; color: #6b7280; margin-top: 2px; margin-bottom: 8px;">
+              Upload a PNG or JPG of an existing activity diagram — the AI will
+              extract its structure and populate the canvas.
+            </div>
+            <div class="image-import-row">
+              <label
+                class="image-import-label ${this.isImportingImage ? 'disabled' : ''}"
+                for="imageImportInputEdit"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                ${this.isImportingImage ? 'Importing…' : 'Choose image'}
+              </label>
+              <input
+                type="file"
+                id="imageImportInputEdit"
+                accept="image/png,image/jpeg,image/jpg"
+                ?disabled=${this.isImportingImage}
+                @change=${this.onImportImageChange}
+              />
+              ${this.importImageFilename
+                ? html`<span class="image-import-filename">${this.importImageFilename}</span>`
+                : null}
+            </div>
+            ${this.importImageError
+              ? html`<div class="error small" style="margin-top: 6px;">${this.importImageError}</div>`
+              : null}
+          </div>
+
+          <!-- Update by Prompt -->
           <hr class="section-divider" />
 
           <div>
@@ -1781,86 +1877,83 @@ export class AdCatalogView extends LitElement {
   }
 
   private async onDownloadDiagramClick(v: CatalogVersion): Promise<void> {
-      const canvasEditor = this.renderRoot?.querySelector(
-        `ad-canvas-editor[data-version-id="${v.id}"]`
-      ) as any;
+    const canvasEditor = this.renderRoot?.querySelector(
+      `ad-canvas-editor[data-version-id="${v.id}"]`
+    ) as any;
 
-      if (!canvasEditor) {
-        console.warn('Download: ad-canvas-editor not found.');
-        return;
-      }
-
-      await canvasEditor.updateComplete?.catch(() => {});
-
-      const svgEl: SVGSVGElement | null =
-        canvasEditor.shadowRoot?.querySelector('svg') ?? null;
-
-      if (!svgEl) {
-        console.warn('Download: no <svg> found in shadow root.');
-        return;
-      }
-
-      // Get actual SVG dimensions
-      const svgWidth = svgEl.width?.baseVal?.value || svgEl.viewBox?.baseVal?.width || 800;
-      const svgHeight = svgEl.height?.baseVal?.value || svgEl.viewBox?.baseVal?.height || 600;
-
-      // Serialize SVG to string with white background
-      const serializer = new XMLSerializer();
-      const svgClone = svgEl.cloneNode(true) as SVGSVGElement;
-      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-
-      // Add white background rect at the beginning
-      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('width', String(svgWidth));
-      bgRect.setAttribute('height', String(svgHeight));
-      bgRect.setAttribute('fill', '#ffffff');
-      svgClone.insertBefore(bgRect, svgClone.firstChild);
-
-      const svgString = serializer.serializeToString(svgClone);
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-
-      const img = new Image();
-      img.onload = () => {
-        const scale = 2; // Retina quality
-        const offscreen = document.createElement('canvas');
-        offscreen.width = svgWidth * scale;
-        offscreen.height = svgHeight * scale;
-
-        const ctx = offscreen.getContext('2d')!;
-        ctx.scale(scale, scale);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, svgWidth, svgHeight);
-        ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
-
-        URL.revokeObjectURL(url);
-
-        const dataUrl = offscreen.toDataURL('image/png');
-        this._triggerDownload(dataUrl, v);
-      };
-
-      img.onerror = (err) => {
-        console.error('Download: failed to load SVG as image', err);
-        URL.revokeObjectURL(url);
-      };
-
-      img.src = url;
+    if (!canvasEditor) {
+      console.warn('Download: ad-canvas-editor not found.');
+      return;
     }
 
-    private _triggerDownload(dataUrl: string, v: CatalogVersion): void {
-      const processName = (this.processDetail?.process_name ?? 'diagram')
-        .replace(/\s+/g, '_')
-        .toLowerCase();
-      const versionLabel = (v.version_name || `v${v.version_number}`)
-        .replace(/\s+/g, '_')
-        .toLowerCase();
-      const filename = `${processName}_${versionLabel}.png`;
+    await canvasEditor.updateComplete?.catch(() => {});
 
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = filename;
-      link.click();
+    const svgEl: SVGSVGElement | null =
+      canvasEditor.shadowRoot?.querySelector('svg') ?? null;
+
+    if (!svgEl) {
+      console.warn('Download: no <svg> found in shadow root.');
+      return;
     }
+
+    const svgWidth = svgEl.width?.baseVal?.value || svgEl.viewBox?.baseVal?.width || 800;
+    const svgHeight = svgEl.height?.baseVal?.value || svgEl.viewBox?.baseVal?.height || 600;
+
+    const serializer = new XMLSerializer();
+    const svgClone = svgEl.cloneNode(true) as SVGSVGElement;
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('width', String(svgWidth));
+    bgRect.setAttribute('height', String(svgHeight));
+    bgRect.setAttribute('fill', '#ffffff');
+    svgClone.insertBefore(bgRect, svgClone.firstChild);
+
+    const svgString = serializer.serializeToString(svgClone);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;
+      const offscreen = document.createElement('canvas');
+      offscreen.width = svgWidth * scale;
+      offscreen.height = svgHeight * scale;
+
+      const ctx = offscreen.getContext('2d')!;
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, svgWidth, svgHeight);
+      ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
+
+      URL.revokeObjectURL(url);
+
+      const dataUrl = offscreen.toDataURL('image/png');
+      this._triggerDownload(dataUrl, v);
+    };
+
+    img.onerror = (err) => {
+      console.error('Download: failed to load SVG as image', err);
+      URL.revokeObjectURL(url);
+    };
+
+    img.src = url;
+  }
+
+  private _triggerDownload(dataUrl: string, v: CatalogVersion): void {
+    const processName = (this.processDetail?.process_name ?? 'diagram')
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+    const versionLabel = (v.version_name || `v${v.version_number}`)
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+    const filename = `${processName}_${versionLabel}.png`;
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    link.click();
+  }
 
   // ---------------------------------------------------------------------------
   // Handlers: Make Public
@@ -2072,6 +2165,8 @@ export class AdCatalogView extends LitElement {
     this.isPlantUmlExpanded = false;
     this.updateInstruction = '';
     this.updateByPromptError = '';
+    this.importImageError = '';
+    this.importImageFilename = '';
 
     this.initCanvasForEdit(base?.canvas_state ?? null, this.editPromptJson);
   }
@@ -2095,6 +2190,8 @@ export class AdCatalogView extends LitElement {
     this.isPlantUmlExpanded = false;
     this.updateInstruction = '';
     this.updateByPromptError = '';
+    this.importImageError = '';
+    this.importImageFilename = '';
 
     this.initCanvasForEdit(v.canvas_state ?? null, this.editPromptJson);
   }
@@ -2109,6 +2206,8 @@ export class AdCatalogView extends LitElement {
     this.editPromptText = '';
     this.updateInstruction = '';
     this.updateByPromptError = '';
+    this.importImageError = '';
+    this.importImageFilename = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -2193,6 +2292,85 @@ export class AdCatalogView extends LitElement {
   }
 
   // ---------------------------------------------------------------------------
+  // Handler: Image import
+  // ---------------------------------------------------------------------------
+
+  private async onImportImageChange(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    this.importImageError = '';
+    this.importImageFilename = file.name;
+    this.isImportingImage = true;
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        'http://localhost:8000/api/v1/generate-structure-from-image',
+        {
+          method: 'POST',
+          headers: { ...this.authHeaders() },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `Backend returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+
+      const normalizedStructure = {
+        actors: data.actors ?? [],
+        actions: (data.actions ?? []).map((a: any) => ({
+          actor: a.actor,
+          action: a.action,
+        })),
+        decisions: Array.isArray(data.decisions)
+          ? data.decisions.map((d: any) => ({
+              condition: d.condition,
+              branchyes:
+                d.branch_yes ?? d.branchyes ?? d.branchYes ?? 'Yes branch',
+              branchno:
+                d.branch_no ?? d.branchno ?? d.branchNo ?? 'No branch',
+              yes_action_index:
+                d.yes_action_index ?? d.yesActionIndex ?? null,
+              no_action_index:
+                d.no_action_index ?? d.noActionIndex ?? null,
+            }))
+          : null,
+        parallelblocks: null,
+      };
+
+      const canvas = this.renderRoot?.querySelector(
+        'ad-canvas-editor:not([data-version-id])'
+      ) as any;
+      if (canvas && typeof canvas.setStructure === 'function') {
+        canvas.setStructure(normalizedStructure);
+      }
+
+      this.editPromptText = JSON.stringify(normalizedStructure, null, 2);
+    } catch (error: unknown) {
+      console.error('Image import failed', error);
+      this.importImageError =
+        error instanceof Error
+          ? `Import failed: ${error.message}`
+          : 'Import failed due to an unknown error.';
+    } finally {
+      this.isImportingImage = false;
+      input.value = '';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Update by Prompt handler
   // ---------------------------------------------------------------------------
 
@@ -2219,7 +2397,6 @@ export class AdCatalogView extends LitElement {
       return;
     }
 
-    // Normalize canvas field names to snake_case before sending to backend
     const currentStructure = {
       actors: rawStructure.actors,
       actions: (rawStructure.actions as any[]).map((a: any) => ({
@@ -2269,7 +2446,6 @@ export class AdCatalogView extends LitElement {
 
       const updatedStructure = await response.json();
 
-      // Normalize response field names to camelCase for canvas compatibility
       const normalizedStructure = {
         actors: updatedStructure.actors ?? [],
         actions: (updatedStructure.actions ?? []).map((a: any) => ({
