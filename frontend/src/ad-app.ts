@@ -1213,7 +1213,7 @@ export class AdApp extends LitElement {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
 
-    // Reset the input value so re-uploading the same file triggers change event
+    // Reset input so re-uploading same file triggers change event
     input.value = '';
 
     if (!file) return;
@@ -1221,6 +1221,8 @@ export class AdApp extends LitElement {
     this.importImageError = '';
     this.importImageFilename = file.name;
     this.isImportingImage = true;
+    this.errorMessage = '';
+    this.lastSaveSucceeded = false;
 
     try {
       const formData = new FormData();
@@ -1269,6 +1271,7 @@ export class AdApp extends LitElement {
       };
 
       this.promptText = JSON.stringify(structure, null, 2);
+      this.lastPrompt = structure;
 
       const canvas = this.renderRoot?.querySelector(
         'ad-canvas-editor'
@@ -1276,6 +1279,10 @@ export class AdApp extends LitElement {
       if (canvas && typeof canvas.setStructure === 'function') {
         canvas.setStructure(structure);
       }
+
+      // --- KEY FIX: generate PlantUML from the extracted structure ---
+      await this.generatePlantUmlFromStructure(structure);
+
     } catch (error: unknown) {
       console.error('Image import failed', error);
       this.importImageError =
@@ -1285,6 +1292,66 @@ export class AdApp extends LitElement {
       this.importImageFilename = '';
     } finally {
       this.isImportingImage = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PlantUML generation from structure (used after image import)
+  // ---------------------------------------------------------------------------
+  private async generatePlantUmlFromStructure(structure: any): Promise<void> {
+    try {
+      const name = this.processName.trim() || 'Imported Process';
+      const domain = this.domain.trim() || 'General';
+      const version = this.versionName.trim();
+
+      const params = new URLSearchParams({
+        process_name: name,
+        domain,
+      });
+      if (version) params.set('version_name', version);
+
+      // Build snake_case payload matching ProcessStructureInput schema
+      const backendStructure = {
+        actors: structure.actors,
+        actions: structure.actions,
+        decisions: Array.isArray(structure.decisions)
+          ? structure.decisions.map((d: any) => ({
+              condition: d.condition,
+              branch_yes: d.branchyes ?? d.branch_yes ?? 'Yes branch',
+              branch_no: d.branchno ?? d.branch_no ?? 'No branch',
+              yes_action_index: d.yes_action_index ?? null,
+              no_action_index: d.no_action_index ?? null,
+            }))
+          : null,
+        parallel_blocks: null,
+      };
+
+      const response = await fetch(
+        `http://localhost:8000/api/v1/generate?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(backendStructure),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const detail =
+          err && typeof err.detail === 'string'
+            ? err.detail
+            : `PlantUML generation returned status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+      this.plantuml = data.plantuml_code ?? '';
+    } catch (error: unknown) {
+      console.error('PlantUML generation from structure failed', error);
+      this.importImageError =
+        error instanceof Error
+          ? `Structure imported but PlantUML generation failed: ${error.message}`
+          : 'Structure imported but PlantUML generation failed.';
     }
   }
 
