@@ -3,6 +3,9 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import './ad-canvas-editor';
 
+declare const __API_BASE_URL__: string;
+const API_BASE = __API_BASE_URL__;
+
 interface PublicCatalogVersion {
   id: number;
   version_number: number;
@@ -90,7 +93,7 @@ export class AdPublicCatalogView extends LitElement {
       font-size: 12px;
       color: #6b7280;
     }
-      
+
     .filters {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -523,7 +526,6 @@ export class AdPublicCatalogView extends LitElement {
       margin-top: 4px;
     }
 
-    /* Modals */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -586,7 +588,6 @@ export class AdPublicCatalogView extends LitElement {
       margin-top: 4px;
     }
 
-    /* Clone option cards */
     .clone-options {
       display: flex;
       flex-direction: column;
@@ -687,7 +688,7 @@ export class AdPublicCatalogView extends LitElement {
 
   @state() private nameFilter = '';
   @state() private ownerFilter = '';
-  @state() private domainFilter = ''; // ADDED
+  @state() private domainFilter = '';
 
   @state() private processes: PublicCatalogListItem[] = [];
   @state() private isLoadingProcesses = false;
@@ -701,13 +702,11 @@ export class AdPublicCatalogView extends LitElement {
   @state() private expandedVersionId: number | null = null;
   @state() private isDetailCodeExpanded = false;
 
-  // Clone state
   @state() private showCloneModal = false;
   @state() private isCloningProcess = false;
   @state() private cloneError = '';
   @state() private cloneSuccessMessage = '';
 
-  // Delete state
   @state() private isDeletingProcess = false;
   @state() private deleteError = '';
   @state() private showDeleteConfirm = false;
@@ -780,12 +779,12 @@ export class AdPublicCatalogView extends LitElement {
     const params = new URLSearchParams();
     if (this.nameFilter.trim()) params.append('name', this.nameFilter.trim());
     if (this.ownerFilter.trim()) params.append('owner', this.ownerFilter.trim());
-    if (this.domainFilter.trim()) params.append('domain', this.domainFilter.trim()); // ADDED
+    if (this.domainFilter.trim()) params.append('domain', this.domainFilter.trim());
 
     const qs = params.toString();
     const url = qs
-      ? `http://localhost:8000/api/v1/catalog/public?${qs}`
-      : 'http://localhost:8000/api/v1/catalog/public';
+      ? `${API_BASE}/api/v1/catalog/public?${qs}`
+      : `${API_BASE}/api/v1/catalog/public`;
 
     try {
       const resp = await fetch(url, {
@@ -834,7 +833,7 @@ export class AdPublicCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/public/${processId}`,
+        `${API_BASE}/api/v1/catalog/public/${processId}`,
         {
           method: 'GET',
           headers: this.authHeaders,
@@ -917,12 +916,13 @@ export class AdPublicCatalogView extends LitElement {
     this.cloneSuccessMessage = '';
 
     try {
-      const body = mode === 'active_only'
-        ? JSON.stringify({ active_only: true })
-        : JSON.stringify({ active_only: false });
+      const body =
+        mode === 'active_only'
+          ? JSON.stringify({ active_only: true })
+          : JSON.stringify({ active_only: false });
 
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/public/${this.processDetail.id}/clone`,
+        `${API_BASE}/api/v1/catalog/public/${this.processDetail.id}/clone`,
         {
           method: 'POST',
           headers: this.authHeaders,
@@ -976,7 +976,7 @@ export class AdPublicCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/public/${this.processDetail.id}`,
+        `${API_BASE}/api/v1/catalog/public/${this.processDetail.id}`,
         {
           method: 'DELETE',
           headers: this.authHeaders,
@@ -1442,117 +1442,108 @@ export class AdPublicCatalogView extends LitElement {
   }
 
   private renderExpandedDetail() {
-      if (
-        !this.processDetail ||
-        this.expandedVersionId === null ||
-        !this.processDetail.versions.length
-      ) {
-        return null;
-      }
+    if (
+      !this.processDetail ||
+      this.expandedVersionId === null ||
+      !this.processDetail.versions.length
+    ) {
+      return null;
+    }
 
-      const v = this.processDetail.versions.find(
-        (ver) => ver.id === this.expandedVersionId
-      );
-      if (!v) return null;
+    const v = this.processDetail.versions.find(
+      (ver) => ver.id === this.expandedVersionId
+    );
+    if (!v) return null;
 
-      return html`
-        <div style="margin-top: 8px;">
-    
-          <!-- Header: "Visual diagram representation" + Download button -->
-          <div style="
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 6px;
-          ">
-            <div class="card-subtitle">Visual diagram representation</div>
-            ${v.prompt
-              ? html`<button
-                  class="secondary"
-                  style="font-size: 12px; padding: 6px 12px;"
-                  @click=${() => this.onDownloadDiagramClick(v)}
-                >
-                  Download
-                </button>`
-              : null}
-          </div>
-    
-          ${v.version_description
-            ? html`<div style="
-                font-size: 13px;
-                color: #9ca3af;
-                background: rgba(15, 23, 42, 0.6);
-                border: 1px solid rgba(55, 65, 81, 0.7);
-                border-radius: 8px;
-                padding: 8px 10px;
-                margin-top: 6px;
-                margin-bottom: 4px;
-                line-height: 1.5;
-              ">
-                ${v.version_description}
-              </div>`
-            : null}
-    
+    return html`
+      <div style="margin-top: 8px;">
+        <div style="
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 6px;
+        ">
+          <div class="card-subtitle">Visual diagram representation</div>
           ${v.prompt
-            ? html`
-                <div
-                  style="position: relative; overflow: hidden; border-radius: 8px;"
-                >
-                  <ad-canvas-editor
-                    data-version-id="${v.id}"
-                    .readOnly=${true}
-                  ></ad-canvas-editor>
-                  <div
-                    style="
-                      position: absolute;
-                      inset: 0;
-                      z-index: 10;
-                      cursor: default;
-                      pointer-events: none;
-                    "
-                  ></div>
-                </div>
-              `
-            : html`
-                <div class="placeholder small" style="margin-top: 8px;">
-                  No diagram structure saved for this version.
-                </div>
-              `}
-    
-          <!-- Footer: "Generated PlantUML" + Show/Hide code -->
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              gap: 10px;
-              margin-top: 16px;
-            "
-          >
-            <div>
-              <div class="card-subtitle">Generated PlantUML</div>
-              <div style="font-size: 11px; color: #6b7280;">
-                Inspect the PlantUML source code for this version.
-              </div>
-            </div>
-            <button
-              class="secondary"
-              style="font-size: 12px; padding: 6px 12px;"
-              @click=${() => {
-                this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
-              }}
-            >
-              ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
-            </button>
-          </div>
-    
-          ${this.isDetailCodeExpanded
-            ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
+            ? html`<button
+                class="secondary"
+                style="font-size: 12px; padding: 6px 12px;"
+                @click=${() => this.onDownloadDiagramClick(v)}
+              >
+                Download
+              </button>`
             : null}
         </div>
-      `;
-    }
+
+        ${v.version_description
+          ? html`<div style="
+              font-size: 13px;
+              color: #9ca3af;
+              background: rgba(15, 23, 42, 0.6);
+              border: 1px solid rgba(55, 65, 81, 0.7);
+              border-radius: 8px;
+              padding: 8px 10px;
+              margin-top: 6px;
+              margin-bottom: 4px;
+              line-height: 1.5;
+            ">
+              ${v.version_description}
+            </div>`
+          : null}
+
+        ${v.prompt
+          ? html`
+              <div style="position: relative; overflow: hidden; border-radius: 8px;">
+                <ad-canvas-editor
+                  data-version-id="${v.id}"
+                  .readOnly=${true}
+                ></ad-canvas-editor>
+                <div style="
+                  position: absolute;
+                  inset: 0;
+                  z-index: 10;
+                  cursor: default;
+                  pointer-events: none;
+                "></div>
+              </div>
+            `
+          : html`
+              <div class="placeholder small" style="margin-top: 8px;">
+                No diagram structure saved for this version.
+              </div>
+            `}
+
+        <div style="
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-top: 16px;
+        ">
+          <div>
+            <div class="card-subtitle">Generated PlantUML</div>
+            <div style="font-size: 11px; color: #6b7280;">
+              Inspect the PlantUML source code for this version.
+            </div>
+          </div>
+          <button
+            class="secondary"
+            style="font-size: 12px; padding: 6px 12px;"
+            @click=${() => {
+              this.isDetailCodeExpanded = !this.isDetailCodeExpanded;
+            }}
+          >
+            ${this.isDetailCodeExpanded ? 'Hide code' : 'Show code'}
+          </button>
+        </div>
+
+        ${this.isDetailCodeExpanded
+          ? html`<pre style="margin-top: 8px;">${v.plantuml_code}</pre>`
+          : null}
+      </div>
+    `;
+  }
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -1566,7 +1557,6 @@ export class AdPublicCatalogView extends LitElement {
     this.ownerFilter = (event.target as HTMLInputElement).value;
   }
 
-  // ADDED
   private onDomainFilterChange(event: Event): void {
     this.domainFilter = (event.target as HTMLInputElement).value;
   }
@@ -1593,83 +1583,90 @@ export class AdPublicCatalogView extends LitElement {
   }
 
   private async onDownloadDiagramClick(v: PublicCatalogVersion): Promise<void> {
-      const canvasEditor = this.renderRoot?.querySelector(
-        `ad-canvas-editor[data-version-id="${v.id}"]`
-      ) as any;
+    const canvasEditor = this.renderRoot?.querySelector(
+      `ad-canvas-editor[data-version-id="${v.id}"]`
+    ) as any;
 
-      if (!canvasEditor) {
-        console.warn('Download: ad-canvas-editor not found.');
-        return;
-      }
-
-      await canvasEditor.updateComplete?.catch(() => {});
-
-      const svgEl: SVGSVGElement | null =
-        canvasEditor.shadowRoot?.querySelector('svg') ?? null;
-
-      if (!svgEl) {
-        console.warn('Download: no <svg> found in shadow root.');
-        return;
-      }
-
-      const svgWidth = svgEl.width?.baseVal?.value || svgEl.viewBox?.baseVal?.width || 800;
-      const svgHeight = svgEl.height?.baseVal?.value || svgEl.viewBox?.baseVal?.height || 600;
-
-      const serializer = new XMLSerializer();
-      const svgClone = svgEl.cloneNode(true) as SVGSVGElement;
-      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-
-      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('width', String(svgWidth));
-      bgRect.setAttribute('height', String(svgHeight));
-      bgRect.setAttribute('fill', '#ffffff');
-      svgClone.insertBefore(bgRect, svgClone.firstChild);
-
-      const svgString = serializer.serializeToString(svgClone);
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-
-      const img = new Image();
-      img.onload = () => {
-        const scale = 2;
-        const offscreen = document.createElement('canvas');
-        offscreen.width = svgWidth * scale;
-        offscreen.height = svgHeight * scale;
-
-        const ctx = offscreen.getContext('2d')!;
-        ctx.scale(scale, scale);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, svgWidth, svgHeight);
-        ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
-
-        URL.revokeObjectURL(url);
-
-        const dataUrl = offscreen.toDataURL('image/png');
-        this._triggerDownload(dataUrl, v);
-      };
-
-      img.onerror = (err) => {
-        console.error('Download: failed to load SVG as image', err);
-        URL.revokeObjectURL(url);
-      };
-
-      img.src = url;
+    if (!canvasEditor) {
+      console.warn('Download: ad-canvas-editor not found.');
+      return;
     }
 
-    private _triggerDownload(dataUrl: string, v: PublicCatalogVersion): void {
-      const processName = (this.processDetail?.name ?? 'diagram')
-        .replace(/\s+/g, '_')
-        .toLowerCase();
-      const versionLabel = (v.version_name || `v${v.version_number}`)
-        .replace(/\s+/g, '_')
-        .toLowerCase();
-      const filename = `${processName}_${versionLabel}.png`;
+    await canvasEditor.updateComplete?.catch(() => {});
 
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = filename;
-      link.click();
+    const svgEl: SVGSVGElement | null =
+      canvasEditor.shadowRoot?.querySelector('svg') ?? null;
+
+    if (!svgEl) {
+      console.warn('Download: no <svg> found in shadow root.');
+      return;
     }
+
+    const svgWidth =
+      svgEl.width?.baseVal?.value || svgEl.viewBox?.baseVal?.width || 800;
+    const svgHeight =
+      svgEl.height?.baseVal?.value || svgEl.viewBox?.baseVal?.height || 600;
+
+    const serializer = new XMLSerializer();
+    const svgClone = svgEl.cloneNode(true) as SVGSVGElement;
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const bgRect = document.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'rect'
+    );
+    bgRect.setAttribute('width', String(svgWidth));
+    bgRect.setAttribute('height', String(svgHeight));
+    bgRect.setAttribute('fill', '#ffffff');
+    svgClone.insertBefore(bgRect, svgClone.firstChild);
+
+    const svgString = serializer.serializeToString(svgClone);
+    const svgBlob = new Blob([svgString], {
+      type: 'image/svg+xml;charset=utf-8',
+    });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;
+      const offscreen = document.createElement('canvas');
+      offscreen.width = svgWidth * scale;
+      offscreen.height = svgHeight * scale;
+
+      const ctx = offscreen.getContext('2d')!;
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, svgWidth, svgHeight);
+      ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
+
+      URL.revokeObjectURL(url);
+
+      const dataUrl = offscreen.toDataURL('image/png');
+      this._triggerDownload(dataUrl, v);
+    };
+
+    img.onerror = (err) => {
+      console.error('Download: failed to load SVG as image', err);
+      URL.revokeObjectURL(url);
+    };
+
+    img.src = url;
+  }
+
+  private _triggerDownload(dataUrl: string, v: PublicCatalogVersion): void {
+    const processName = (this.processDetail?.name ?? 'diagram')
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+    const versionLabel = (v.version_name || `v${v.version_number}`)
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+    const filename = `${processName}_${versionLabel}.png`;
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    link.click();
+  }
 }
 
 declare global {

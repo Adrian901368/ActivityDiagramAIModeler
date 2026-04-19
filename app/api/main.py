@@ -1,3 +1,4 @@
+# app/main.py
 """
 FastAPI application entry point.
 
@@ -23,13 +24,17 @@ app = FastAPI(
     openapi_url="/api-schema",
 )
 
-# Allow frontend (Vite dev server) to call this API.
+# Allow frontend (Vite dev server + Vercel production) to call this API.
 # NOTE: explicit header list is required — using ["*"] with
 # allow_credentials=True breaks CORS preflight in Safari/WebKit
 # for custom headers like X-User-Email.
+_extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+_extra = [o.strip() for o in _extra_origins.split(",") if o.strip()]
+
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    *_extra,
 ]
 
 app.add_middleware(
@@ -43,7 +48,7 @@ app.add_middleware(
         "Accept",
         "Origin",
         "X-Requested-With",
-        "X-User-Email",       # custom auth header used by the frontend
+        "X-User-Email",
     ],
     expose_headers=["Content-Type"],
 )
