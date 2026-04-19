@@ -2,6 +2,9 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
+declare const __API_BASE_URL__: string;
+const API_BASE = __API_BASE_URL__;
+
 interface CatalogProcess {
   id: number;
   name: string;
@@ -613,7 +616,6 @@ export class AdCatalogView extends LitElement {
       align-self: flex-end;
     }
 
-    /* Make Public Modal */
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -701,7 +703,6 @@ export class AdCatalogView extends LitElement {
       padding: 7px 10px;
     }
 
-    /* Image import */
     .image-import-row {
       display: flex;
       align-items: center;
@@ -796,17 +797,14 @@ export class AdCatalogView extends LitElement {
   @state() private isPlantUmlExpanded = false;
   @state() private isDetailCodeExpanded = false;
 
-  // Update by Prompt state (edit view)
   @state() private updateInstruction = '';
   @state() private isUpdatingByPrompt = false;
   @state() private updateByPromptError = '';
 
-  // Make Public modal state
   @state() private showMakePublicModal = false;
   @state() private isMakingPublic = false;
   @state() private makePublicError = '';
 
-  // Image import state (edit view)
   @state() private isImportingImage = false;
   @state() private importImageError = '';
   @state() private importImageFilename = '';
@@ -864,8 +862,8 @@ export class AdCatalogView extends LitElement {
 
     const qs = params.toString();
     const url = qs
-      ? `http://localhost:8000/api/v1/catalog/processes?${qs}`
-      : 'http://localhost:8000/api/v1/catalog/processes';
+      ? `${API_BASE}/api/v1/catalog/processes?${qs}`
+      : `${API_BASE}/api/v1/catalog/processes`;
 
     try {
       const resp = await fetch(url, { headers: { ...this.authHeaders() } });
@@ -902,7 +900,7 @@ export class AdCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${processId}`,
+        `${API_BASE}/api/v1/catalog/${processId}`,
         { headers: { ...this.authHeaders() } }
       );
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
@@ -1571,7 +1569,6 @@ export class AdCatalogView extends LitElement {
             ></textarea>
           </div>
 
-          <!-- Image import section -->
           <hr class="section-divider" />
 
           <div>
@@ -1615,7 +1612,6 @@ export class AdCatalogView extends LitElement {
               : null}
           </div>
 
-          <!-- Update by Prompt -->
           <hr class="section-divider" />
 
           <div>
@@ -1837,7 +1833,7 @@ export class AdCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}`,
+        `${API_BASE}/api/v1/catalog/${this.processDetail.process_id}`,
         {
           method: 'PATCH',
           headers: {
@@ -1985,7 +1981,7 @@ export class AdCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}/make-public`,
+        `${API_BASE}/api/v1/catalog/${this.processDetail.process_id}/make-public`,
         {
           method: 'POST',
           headers: {
@@ -2025,7 +2021,7 @@ export class AdCatalogView extends LitElement {
     if (!confirm('Delete ALL your processes and their versions from catalog?')) return;
     this.isDeletingAll = true;
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/catalog', {
+      const resp = await fetch(`${API_BASE}/api/v1/catalog`, {
         method: 'DELETE',
         headers: { ...this.authHeaders() },
       });
@@ -2057,7 +2053,7 @@ export class AdCatalogView extends LitElement {
     this.isDeletingProcess = true;
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${this.processDetail.process_id}`,
+        `${API_BASE}/api/v1/catalog/${this.processDetail.process_id}`,
         { method: 'DELETE', headers: { ...this.authHeaders() } }
       );
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
@@ -2087,7 +2083,7 @@ export class AdCatalogView extends LitElement {
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}`,
+        `${API_BASE}/api/v1/catalog/${v.process_id}/versions/${v.version_number}`,
         { method: 'DELETE', headers: { ...this.authHeaders() } }
       );
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
@@ -2111,7 +2107,7 @@ export class AdCatalogView extends LitElement {
     this.isMutatingVersion = true;
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/catalog/${v.process_id}/versions/${v.version_number}/publish`,
+        `${API_BASE}/api/v1/catalog/${v.process_id}/versions/${v.version_number}/publish`,
         { method: 'PUT', headers: { ...this.authHeaders() } }
       );
       if (!resp.ok) throw new Error(`Backend returned status ${resp.status}`);
@@ -2309,7 +2305,7 @@ export class AdCatalogView extends LitElement {
       formData.append('file', file);
 
       const response = await fetch(
-        'http://localhost:8000/api/v1/generate-structure-from-image',
+        `${API_BASE}/api/v1/generate-structure-from-image`,
         {
           method: 'POST',
           headers: { ...this.authHeaders() },
@@ -2424,7 +2420,7 @@ export class AdCatalogView extends LitElement {
       };
 
       const response = await fetch(
-        'http://localhost:8000/api/v1/update-structure',
+        `${API_BASE}/api/v1/update-structure`,
         {
           method: 'POST',
           headers: {
@@ -2511,7 +2507,7 @@ export class AdCatalogView extends LitElement {
 
     try {
       const resp = await fetch(
-        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
+        `${API_BASE}/api/v1/generate-from-text?${params.toString()}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2589,7 +2585,7 @@ export class AdCatalogView extends LitElement {
     let method: string;
 
     if (this.editMode === 'create') {
-      url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions`;
+      url = `${API_BASE}/api/v1/catalog/${this.editProcessId}/versions`;
       if (params.toString()) url += `?${params.toString()}`;
       method = 'POST';
     } else {
@@ -2598,7 +2594,7 @@ export class AdCatalogView extends LitElement {
         this.isGenerating = false;
         return;
       }
-      url = `http://localhost:8000/api/v1/catalog/${this.editProcessId}/versions/${this.editVersionNumber}`;
+      url = `${API_BASE}/api/v1/catalog/${this.editProcessId}/versions/${this.editVersionNumber}`;
       if (params.toString()) url += `?${params.toString()}`;
       method = 'PUT';
     }

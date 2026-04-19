@@ -6,6 +6,9 @@ import './ad-catalog-view';
 import './ad-canvas-editor';
 import './ad-public-catalog-view';
 
+declare const __API_BASE_URL__: string;
+const API_BASE = __API_BASE_URL__;
+
 type View = 'generate' | 'catalog' | 'public';
 
 @customElement('ad-app')
@@ -103,7 +106,6 @@ export class AdApp extends LitElement {
       line-height: 1.5;
     }
 
-    /* Nav tabs */
     .nav-tabs {
       display: flex;
       align-items: center;
@@ -487,7 +489,6 @@ export class AdApp extends LitElement {
       white-space: nowrap;
     }
 
-    /* Update by Prompt */
     .update-prompt-row {
       display: flex;
       align-items: flex-start;
@@ -521,7 +522,6 @@ export class AdApp extends LitElement {
         0 0 1px rgba(99, 102, 241, 0.9);
     }
 
-    /* Image import */
     .image-import-row {
       display: flex;
       align-items: center;
@@ -622,12 +622,10 @@ export class AdApp extends LitElement {
 
   @state() private isPlantUmlExpanded = false;
 
-  // Update by Prompt state
   @state() private updateInstruction = '';
   @state() private isUpdatingByPrompt = false;
   @state() private updateByPromptError = '';
 
-  // Image import state
   @state() private isImportingImage = false;
   @state() private importImageError = '';
   @state() private importImageFilename = '';
@@ -828,7 +826,6 @@ export class AdApp extends LitElement {
               ></textarea>
             </div>
 
-            <!-- Import diagram from image -->
             <hr class="section-divider" />
 
             <div>
@@ -889,7 +886,6 @@ export class AdApp extends LitElement {
                 : null}
             </div>
 
-            <!-- Update by Prompt -->
             <hr class="section-divider" />
 
             <div>
@@ -1213,7 +1209,6 @@ export class AdApp extends LitElement {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
 
-    // Reset input so re-uploading same file triggers change event
     input.value = '';
 
     if (!file) return;
@@ -1229,7 +1224,7 @@ export class AdApp extends LitElement {
       formData.append('file', file);
 
       const response = await fetch(
-        'http://localhost:8000/api/v1/generate-structure-from-image',
+        `${API_BASE}/api/v1/generate-structure-from-image`,
         {
           method: 'POST',
           body: formData,
@@ -1247,7 +1242,6 @@ export class AdApp extends LitElement {
 
       const data = await response.json();
 
-      // Normalize field names for canvas compatibility
       const structure = {
         actors: data.actors ?? [],
         actions: (data.actions ?? []).map((a: any) => ({
@@ -1280,7 +1274,6 @@ export class AdApp extends LitElement {
         canvas.setStructure(structure);
       }
 
-      // --- KEY FIX: generate PlantUML from the extracted structure ---
       await this.generatePlantUmlFromStructure(structure);
 
     } catch (error: unknown) {
@@ -1298,19 +1291,16 @@ export class AdApp extends LitElement {
   // ---------------------------------------------------------------------------
   // PlantUML generation from structure (used after image import)
   // ---------------------------------------------------------------------------
+
   private async generatePlantUmlFromStructure(structure: any): Promise<void> {
     try {
       const name = this.processName.trim() || 'Imported Process';
       const domain = this.domain.trim() || 'General';
       const version = this.versionName.trim();
 
-      const params = new URLSearchParams({
-        process_name: name,
-        domain,
-      });
+      const params = new URLSearchParams({ process_name: name, domain });
       if (version) params.set('version_name', version);
 
-      // Build snake_case payload matching ProcessStructureInput schema
       const backendStructure = {
         actors: structure.actors,
         actions: structure.actions,
@@ -1327,7 +1317,7 @@ export class AdApp extends LitElement {
       };
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/generate?${params.toString()}`,
+        `${API_BASE}/api/v1/generate?${params.toString()}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1382,7 +1372,7 @@ export class AdApp extends LitElement {
       if (version) params.set('version_name', version);
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/generate-from-text?${params.toString()}`,
+        `${API_BASE}/api/v1/generate-from-text?${params.toString()}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1480,7 +1470,6 @@ export class AdApp extends LitElement {
       return;
     }
 
-    // Normalize canvas field names to snake_case before sending to backend
     const currentStructure = {
       actors: rawStructure.actors,
       actions: (rawStructure.actions as any[]).map((a: any) => ({
@@ -1508,7 +1497,7 @@ export class AdApp extends LitElement {
       };
 
       const response = await fetch(
-        'http://localhost:8000/api/v1/update-structure',
+        `${API_BASE}/api/v1/update-structure`,
         {
           method: 'POST',
           headers: {
@@ -1530,7 +1519,6 @@ export class AdApp extends LitElement {
 
       const updatedStructure = await response.json();
 
-      // Normalize response field names to camelCase for canvas compatibility
       const normalizedStructure = {
         actors: updatedStructure.actors ?? [],
         actions: (updatedStructure.actions ?? []).map((a: any) => ({
@@ -1625,7 +1613,7 @@ export class AdApp extends LitElement {
       };
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/catalog/save?${params.toString()}`,
+        `${API_BASE}/api/v1/catalog/save?${params.toString()}`,
         {
           method: 'POST',
           headers: {

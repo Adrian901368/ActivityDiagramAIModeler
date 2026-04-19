@@ -1,5 +1,9 @@
+// src/components/ad-login-view.ts
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+
+declare const __API_BASE_URL__: string;
+const API_BASE = __API_BASE_URL__;
 
 @customElement('ad-login-view')
 export class AdLoginView extends LitElement {
@@ -137,14 +141,13 @@ export class AdLoginView extends LitElement {
     this.isLoading = true;
 
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/auth/login', {
+      const resp = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       if (!resp.ok) {
-        // Backend returns 401 with detail "Invalid credentials"
         this.error = 'Invalid credentials';
         return;
       }
