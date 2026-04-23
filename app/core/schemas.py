@@ -5,7 +5,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
-
 # ---------------------------------------------------------------------------
 # Process structure input models
 # ---------------------------------------------------------------------------
@@ -47,6 +46,7 @@ class Decision(BaseModel):
             "but strongly recommended."
         ),
     )
+
     no_action_index: Optional[int] = Field(
         default=None,
         ge=0,
@@ -71,7 +71,7 @@ class ParallelBlock(BaseModel):
     actions: List[Action] = Field(
         ...,
         min_length=2,
-        max_length=5,
+        max_length=20,  # raised from 5 → 20
         description="Actions that run in parallel within this block.",
     )
 
@@ -89,20 +89,23 @@ class ProcessStructureInput(BaseModel):
         description="List of actors (swimlanes)",
         examples=["Customer", "System", "Warehouse"],
     )
+
     actions: List[Action] = Field(
         ...,
         min_length=1,
         max_length=100,
         description="Sequence of actions in the process",
     )
+
     decisions: Optional[List[Decision]] = Field(
         default=None,
-        max_length=10,
+        max_length=30,  # raised from 10 → 30
         description="Decisions in the process (optional)",
     )
+
     parallel_blocks: Optional[List[ParallelBlock]] = Field(
         default=None,
-        max_length=5,
+        max_length=20,  # raised from 5 → 20
         description="Parallel execution of actions (optional)",
     )
 
@@ -134,6 +137,7 @@ class ProcessStructureInput(BaseModel):
         unknown_actors = sorted(
             action.actor for action in self.actions if action.actor not in actor_set
         )
+
         if unknown_actors:
             raise ValueError(f"Actions reference unknown actors: {', '.join(unknown_actors)}")
 
@@ -169,6 +173,7 @@ class UpdateByPromptInput(BaseModel):
             "'Rename actor Z to W'."
         ),
     )
+
     current_structure: ProcessStructureInput = Field(
         ...,
         description=(
@@ -284,6 +289,7 @@ class LoginRequest(BaseModel):
         max_length=100,
         description="User email address (one of the allowed STU test accounts)",
     )
+
     password: str = Field(
         ...,
         min_length=1,
@@ -365,7 +371,7 @@ class MakePublicRequest(BaseModel):
     """
     Payload for POST /catalog/{process_id}/make-public.
 
-    mode='active_only'  -> copies only versions with status='active'
+    mode='active_only' -> copies only versions with status='active'
     mode='all_versions' -> copies versions with status IN ('active', 'archived')
     Draft versions are NEVER included regardless of mode.
     """

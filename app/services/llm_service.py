@@ -9,12 +9,10 @@ from openai import OpenAI
 
 from app.core.config import settings
 
-
 logger = logging.getLogger(__name__)
 
 MAX_STRUCTURED_ACTORS = 20
 MAX_STRUCTURED_ACTIONS = 100
-
 
 def get_llm_client() -> OpenAI:
     """
@@ -345,12 +343,12 @@ def generate_structured_prompt_from_image(
     of an existing UML Activity Diagram using a 2-step pipeline:
 
     Step 1 — Gemini Vision (free tier):
-        Analyze the image and return a detailed textual description of the
-        diagram (actors, actions, decisions, flow).
+    Analyze the image and return a detailed textual description of the
+    diagram (actors, actions, decisions, flow).
 
     Step 2 — Groq (generate_structured_prompt_from_text):
-        Convert the textual description into a structured JSON matching
-        the ProcessStructureInput schema.
+    Convert the textual description into a structured JSON matching
+    the ProcessStructureInput schema.
     """
     vision_model = get_vision_client()
 
