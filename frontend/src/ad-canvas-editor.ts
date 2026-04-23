@@ -1630,125 +1630,273 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private renderEdges(layout: DerivedLayout) {
-    const paths: unknown[] = [];
-    const findAction = (idx: number | null) => (idx !== null && idx !== undefined ? layout.indexedActions.find((a) => a.actionIndex === idx) ?? null : null);
-    const terminalBranchActions = new Map<number, string>();
+      const paths: unknown[] = [];
+      const findAction = (idx: number | null) =>
+        idx !== null && idx !== undefined
+          ? layout.indexedActions.find((a) => a.actionIndex === idx) ?? null
+          : null;
+      const terminalBranchActions = new Map<number, string>();
 
-    layout.mergeNodes.forEach((merge) => {
-      if (merge.yesTerminal && merge.yesTerminal.actionIndex !== null) terminalBranchActions.set(merge.yesTerminal.actionIndex, merge.decisionId);
-      if (merge.noTerminal && merge.noTerminal.actionIndex !== null) terminalBranchActions.set(merge.noTerminal.actionIndex, merge.decisionId);
-    });
-
-    const getH = (node: CanvasNodeBase) => {
-      if (node.type === 'action') return this.getNodeDynamicHeight(node as CanvasNode);
-      if (node.type === 'decision') return this.decisionSize;
-      return this.nodeHeight;
-    };
-
-    const addPath = (svgPath: unknown, id: string) => {
-      if (!svgPath || this.deletedEdgeIds.includes(id)) return;
-      paths.push(svgPath);
-    };
-
-    if (layout.startNode && layout.indexedActions.length) {
-      const firstAction = layout.indexedActions[0];
-      const id = `auto_start_${firstAction.id}`;
-      addPath(this.edgeStraight(layout.startNode.x, layout.startNode.y + 10, firstAction.x, firstAction.y - getH(firstAction) / 2, { id, fromId: 'start', toId: firstAction.id }), id);
-    }
-
-    layout.indexedActions.forEach((action) => {
-      const relatedDecisions = layout.decisionsBySource.get(action.actionIndex!) ?? [];
-      relatedDecisions.forEach((decision) => {
-        const id = `auto_${action.id}_${decision.id}`;
-        addPath(this.edgeStraight(action.x, action.y + getH(action) / 2, decision.x, decision.y - this.decisionSize / 2, { id, fromId: action.id, toId: decision.id }), id);
+      layout.mergeNodes.forEach((merge) => {
+        if (merge.yesTerminal && merge.yesTerminal.actionIndex !== null)
+          terminalBranchActions.set(merge.yesTerminal.actionIndex, merge.decisionId);
+        if (merge.noTerminal && merge.noTerminal.actionIndex !== null)
+          terminalBranchActions.set(merge.noTerminal.actionIndex, merge.decisionId);
       });
-    });
 
-    for (let i = 0; i < layout.indexedActions.length - 1; i++) {
-      const from = layout.indexedActions[i];
-      const to = layout.indexedActions[i + 1];
-      if (layout.decisionsBySource.has(from.actionIndex!)) continue;
-      if (terminalBranchActions.has(from.actionIndex!)) continue;
-
-      const fromMark = layout.branchMembership.get(from.actionIndex!);
-      const toMark = layout.branchMembership.get(to.actionIndex!);
-      if (fromMark && toMark && fromMark.decisionId === toMark.decisionId && fromMark.side !== toMark.side) continue;
-
-      const id = `auto_${from.id}_${to.id}`;
-      addPath(this.edgeStraight(from.x, from.y + getH(from) / 2, to.x, to.y - getH(to) / 2, { id, fromId: from.id, toId: to.id }), id);
-    }
-
-    if (this.explicitEdges) {
-      const getPos = (id: string) => {
-        if (id === 'virtual-start' && layout.startNode) return { x: layout.startNode.x, y: layout.startNode.y, h: 20, type: 'virtual' };
-        if (id === 'virtual-final' && layout.finalNode) return { x: layout.finalNode.x, y: layout.finalNode.y, h: 22, type: 'virtual' };
-        if (id.startsWith('virtual-merge-')) {
-          const mId = id.replace('virtual-merge-', '');
-          const m = layout.mergeNodes.find(x => x.decisionId === mId);
-          if (m) return { x: m.x, y: m.y, h: this.mergeSize, type: 'virtual' };
-        }
-        const n = this.nodes.find(x => x.id === id);
-        if (n) return { x: n.x, y: n.y, h: getH(n), type: n.type };
-        return null;
+      // Fix #1: always use getNodeDynamicHeight for all node types
+      const getH = (node: CanvasNodeBase): number => {
+        return this.getNodeDynamicHeight(node as CanvasNode);
       };
 
-      this.explicitEdges.forEach((edge) => {
-        const fromPos = getPos(edge.fromId);
-        const toPos = getPos(edge.toId);
-        if (!fromPos || !toPos) return;
+      // Fix #2: get actual decision halfW from dims
+      const getDecisionHalfW = (node: DecisionCanvasNode): number => {
+        const lines = this.wrapText(node.condition || 'Decision', 18);
+        return this.getDecisionDimensions(lines).halfW;
+      };
 
-        if (fromPos.type === 'decision' && edge.portType === 'decision-yes') {
-          paths.push(this.edgeBranch(fromPos.x - this.decisionSize / 2, fromPos.y, toPos.x, toPos.y - toPos.h / 2, edge as any));
-        } else if (fromPos.type === 'decision' && edge.portType === 'decision-no') {
-          paths.push(this.edgeBranch(fromPos.x + this.decisionSize / 2, fromPos.y, toPos.x, toPos.y - toPos.h / 2, edge as any));
-        } else {
-          paths.push(this.edgeStraight(fromPos.x, fromPos.y + fromPos.h / 2, toPos.x, toPos.y - toPos.h / 2, edge as any));
+      const addPath = (svgPath: unknown, id: string) => {
+        if (!svgPath || this.deletedEdgeIds.includes(id)) return;
+        paths.push(svgPath);
+      };
+
+      if (layout.startNode && layout.indexedActions.length) {
+        const firstAction = layout.indexedActions[0];
+        const id = `auto_start_${firstAction.id}`;
+        addPath(
+          this.edgeStraight(
+            layout.startNode.x,
+            layout.startNode.y + 10,
+            firstAction.x,
+            firstAction.y - getH(firstAction) / 2,
+            { id, fromId: 'start', toId: firstAction.id }
+          ),
+          id
+        );
+      }
+
+      layout.indexedActions.forEach((action) => {
+        const relatedDecisions = layout.decisionsBySource.get(action.actionIndex!) ?? [];
+        relatedDecisions.forEach((decision) => {
+          const id = `auto_${action.id}_${decision.id}`;
+          addPath(
+            this.edgeStraight(
+              action.x,
+              action.y + getH(action) / 2,
+              decision.x,
+              decision.y - getH(decision) / 2, // Fix #1: dynamic height
+              { id, fromId: action.id, toId: decision.id }
+            ),
+            id
+          );
+        });
+      });
+
+      for (let i = 0; i < layout.indexedActions.length - 1; i++) {
+        const from = layout.indexedActions[i];
+        const to = layout.indexedActions[i + 1];
+        if (layout.decisionsBySource.has(from.actionIndex!)) continue;
+        if (terminalBranchActions.has(from.actionIndex!)) continue;
+
+        const fromMark = layout.branchMembership.get(from.actionIndex!);
+        const toMark = layout.branchMembership.get(to.actionIndex!);
+        if (
+          fromMark &&
+          toMark &&
+          fromMark.decisionId === toMark.decisionId &&
+          fromMark.side !== toMark.side
+        )
+          continue;
+
+        const id = `auto_${from.id}_${to.id}`;
+        addPath(
+          this.edgeStraight(
+            from.x,
+            from.y + getH(from) / 2,
+            to.x,
+            to.y - getH(to) / 2,
+            { id, fromId: from.id, toId: to.id }
+          ),
+          id
+        );
+      }
+
+      if (this.explicitEdges) {
+        const getPos = (id: string) => {
+          if (id === 'virtual-start' && layout.startNode)
+            return { x: layout.startNode.x, y: layout.startNode.y, h: 20, halfW: 10, type: 'virtual' };
+          if (id === 'virtual-final' && layout.finalNode)
+            return { x: layout.finalNode.x, y: layout.finalNode.y, h: 22, halfW: 11, type: 'virtual' };
+          if (id.startsWith('virtual-merge-')) {
+            const mId = id.replace('virtual-merge-', '');
+            const m = layout.mergeNodes.find((x) => x.decisionId === mId);
+            if (m)
+              return { x: m.x, y: m.y, h: this.mergeSize, halfW: this.mergeSize / 2, type: 'virtual' };
+          }
+          const n = this.nodes.find((x) => x.id === id);
+          if (n) {
+            // Fix #2: include halfW for decision nodes
+            let halfW = 60;
+            if (n.type === 'decision') {
+              halfW = getDecisionHalfW(n as DecisionCanvasNode);
+            } else if (n.type === 'action') {
+              const lines = this.wrapText((n as ActionCanvasNode).text || '', 22);
+              halfW = this.getActionDimensions(lines).width / 2;
+            } else if (n.type === 'merge') {
+              halfW = this.mergeSize / 2;
+            }
+            return { x: n.x, y: n.y, h: getH(n), halfW, type: n.type };
+          }
+          return null;
+        };
+
+        this.explicitEdges.forEach((edge) => {
+          const fromPos = getPos(edge.fromId);
+          const toPos = getPos(edge.toId);
+          if (!fromPos || !toPos) return;
+
+          // Fix #2: use actual halfW instead of hardcoded decisionSize/2
+          if (fromPos.type === 'decision' && edge.portType === 'decision-yes') {
+            paths.push(
+              this.edgeBranch(
+                fromPos.x - fromPos.halfW,
+                fromPos.y,
+                toPos.x,
+                toPos.y - toPos.h / 2,
+                edge as { id: string; fromId: string; toId: string }
+              )
+            );
+          } else if (fromPos.type === 'decision' && edge.portType === 'decision-no') {
+            paths.push(
+              this.edgeBranch(
+                fromPos.x + fromPos.halfW,
+                fromPos.y,
+                toPos.x,
+                toPos.y - toPos.h / 2,
+                edge as { id: string; fromId: string; toId: string }
+              )
+            );
+          } else {
+            paths.push(
+              this.edgeStraight(
+                fromPos.x,
+                fromPos.y + fromPos.h / 2,
+                toPos.x,
+                toPos.y - toPos.h / 2,
+                edge as { id: string; fromId: string; toId: string }
+              )
+            );
+          }
+        });
+      }
+
+      layout.decisionNodes.forEach((decision) => {
+        // Fix #2: use actual halfW for auto decision edges
+        const halfW = getDecisionHalfW(decision);
+
+        const yesTarget = findAction(decision.yesActionIndex);
+        if (yesTarget) {
+          const id = `auto_${decision.id}_yes_${yesTarget.id}`;
+          addPath(
+            this.edgeBranch(
+              decision.x - halfW,
+              decision.y,
+              yesTarget.x,
+              yesTarget.y - getH(yesTarget) / 2,
+              { id, fromId: decision.id, toId: yesTarget.id }
+            ),
+            id
+          );
+        }
+
+        const noTarget = findAction(decision.noActionIndex);
+        if (noTarget) {
+          const id = `auto_${decision.id}_no_${noTarget.id}`;
+          addPath(
+            this.edgeBranch(
+              decision.x + halfW,
+              decision.y,
+              noTarget.x,
+              noTarget.y - getH(noTarget) / 2,
+              { id, fromId: decision.id, toId: noTarget.id }
+            ),
+            id
+          );
         }
       });
+
+      layout.mergeNodes.forEach((merge) => {
+        const halfM = this.mergeSize / 2;
+        if (merge.yesTerminal) {
+          const id = `auto_merge_yes_${merge.yesTerminal.id}_${merge.decisionId}`;
+          addPath(
+            this.edgeToMerge(
+              merge.yesTerminal.x,
+              merge.yesTerminal.y + getH(merge.yesTerminal) / 2,
+              merge.x,
+              merge.y,
+              { id, fromId: merge.yesTerminal.id, toId: merge.decisionId }
+            ),
+            id
+          );
+        }
+        if (merge.noTerminal) {
+          const id = `auto_merge_no_${merge.noTerminal.id}_${merge.decisionId}`;
+          addPath(
+            this.edgeToMerge(
+              merge.noTerminal.x,
+              merge.noTerminal.y + getH(merge.noTerminal) / 2,
+              merge.x,
+              merge.y,
+              { id, fromId: merge.noTerminal.id, toId: merge.decisionId }
+            ),
+            id
+          );
+        }
+        if (merge.nextAction) {
+          const id = `auto_merge_${merge.decisionId}_${merge.nextAction.id}`;
+          addPath(
+            this.edgeStraight(
+              merge.x,
+              merge.y + halfM,
+              merge.nextAction.x,
+              merge.nextAction.y - getH(merge.nextAction) / 2,
+              { id, fromId: merge.decisionId, toId: merge.nextAction.id }
+            ),
+            id
+          );
+        } else if (layout.finalNode) {
+          const id = `auto_merge_${merge.decisionId}_final`;
+          addPath(
+            this.edgeStraight(
+              merge.x,
+              merge.y + halfM,
+              layout.finalNode.x,
+              layout.finalNode.y - 11,
+              { id, fromId: merge.decisionId, toId: 'final' }
+            ),
+            id
+          );
+        }
+      });
+
+      if (!layout.mergeNodes.length && layout.finalNode && layout.indexedActions.length) {
+        const lastAction = layout.indexedActions[layout.indexedActions.length - 1];
+        const id = `auto_${lastAction.id}_final`;
+        addPath(
+          this.edgeStraight(
+            lastAction.x,
+            lastAction.y + getH(lastAction) / 2,
+            layout.finalNode.x,
+            layout.finalNode.y - 11,
+            { id, fromId: lastAction.id, toId: 'final' }
+          ),
+          id
+        );
+      }
+
+      return svg`${paths}`;
     }
-
-    layout.decisionNodes.forEach((decision) => {
-      const half = this.decisionSize / 2;
-      const yesTarget = findAction(decision.yesActionIndex);
-      if (yesTarget) {
-        const id = `auto_${decision.id}_yes_${yesTarget.id}`;
-        addPath(this.edgeBranch(decision.x - half, decision.y, yesTarget.x, yesTarget.y - getH(yesTarget) / 2, { id, fromId: decision.id, toId: yesTarget.id }), id);
-      }
-
-      const noTarget = findAction(decision.noActionIndex);
-      if (noTarget) {
-        const id = `auto_${decision.id}_no_${noTarget.id}`;
-        addPath(this.edgeBranch(decision.x + half, decision.y, noTarget.x, noTarget.y - getH(noTarget) / 2, { id, fromId: decision.id, toId: noTarget.id }), id);
-      }
-    });
-
-    layout.mergeNodes.forEach((merge) => {
-      const halfM = this.mergeSize / 2;
-      if (merge.yesTerminal) {
-        const id = `auto_merge_yes_${merge.yesTerminal.id}_${merge.decisionId}`;
-        addPath(this.edgeToMerge(merge.yesTerminal.x, merge.yesTerminal.y + getH(merge.yesTerminal) / 2, merge.x, merge.y, { id, fromId: merge.yesTerminal.id, toId: merge.decisionId }), id);
-      }
-      if (merge.noTerminal) {
-        const id = `auto_merge_no_${merge.noTerminal.id}_${merge.decisionId}`;
-        addPath(this.edgeToMerge(merge.noTerminal.x, merge.noTerminal.y + getH(merge.noTerminal) / 2, merge.x, merge.y, { id, fromId: merge.noTerminal.id, toId: merge.decisionId }), id);
-      }
-      if (merge.nextAction) {
-        const id = `auto_merge_${merge.decisionId}_${merge.nextAction.id}`;
-        addPath(this.edgeStraight(merge.x, merge.y + halfM, merge.nextAction.x, merge.nextAction.y - getH(merge.nextAction) / 2, { id, fromId: merge.decisionId, toId: merge.nextAction.id }), id);
-      } else if (layout.finalNode) {
-        const id = `auto_merge_${merge.decisionId}_final`;
-        addPath(this.edgeStraight(merge.x, merge.y + halfM, layout.finalNode.x, layout.finalNode.y - 11, { id, fromId: merge.decisionId, toId: 'final' }), id);
-      }
-    });
-
-    if (!layout.mergeNodes.length && layout.finalNode && layout.indexedActions.length) {
-      const lastAction = layout.indexedActions[layout.indexedActions.length - 1];
-      const id = `auto_${lastAction.id}_final`;
-      addPath(this.edgeStraight(lastAction.x, lastAction.y + getH(lastAction) / 2, layout.finalNode.x, layout.finalNode.y - 11, { id, fromId: lastAction.id, toId: 'final' }), id);
-    }
-
-    return svg`${paths}`;
-  }
 
   // ---------------------------------------------------------------------------
   // Pointer events & interaction
@@ -1898,123 +2046,153 @@ export class AdCanvasEditor extends LitElement {
     virtualTarget.setPointerCapture(event.pointerId);
   }
 
-  private onCanvasPointerMove(event: PointerEvent): void {
-    if (!this.dragState) return;
+    private onCanvasPointerMove(event: PointerEvent): void {
+      if (!this.dragState) return;
 
-    const svgElement = this.renderRoot.querySelector('svg') as SVGSVGElement | null;
-    if (!svgElement) return;
+      const svgElement = this.renderRoot.querySelector('svg') as SVGSVGElement | null;
+      if (!svgElement) return;
 
-    const point = svgElement.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
-    const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
+      const point = svgElement.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
 
-    if (this.dragState.kind === 'real') {
-      const { nodeId, offsetX, offsetY } = this.dragState;
-      const nodeIndex = this.nodes.findIndex((n) => n.id === nodeId);
-      if (nodeIndex === -1) return;
-      const nodes = [...this.nodes];
-      nodes[nodeIndex] = { ...nodes[nodeIndex], x: svgPoint.x - offsetX, y: svgPoint.y - offsetY };
-      this.nodes = nodes;
-      return;
-    }
+      if (this.dragState.kind === 'real') {
+        const { nodeId, offsetX, offsetY } = this.dragState;
+        const nodeIndex = this.nodes.findIndex((n) => n.id === nodeId);
+        if (nodeIndex === -1) return;
+        const nodes = [...this.nodes];
+        nodes[nodeIndex] = {
+          ...nodes[nodeIndex],
+          x: svgPoint.x - offsetX,
+          y: svgPoint.y - offsetY,
+        };
+        this.nodes = nodes;
+        return;
+      }
 
-    if (this.dragState.kind === 'divider') {
-      const { dividerIndex, startX, initialWidths, trackedNodes } = this.dragState;
-      const deltaX = svgPoint.x - startX;
-      const leftInitial = initialWidths[dividerIndex];
-      const rightInitial = initialWidths[dividerIndex + 1];
-      const pairTotal = leftInitial + rightInitial;
-      const newLeft = Math.max(this.minLaneWidth, Math.min(pairTotal - this.minLaneWidth, leftInitial + deltaX));
-      const nextWidths = [...initialWidths];
-      nextWidths[dividerIndex] = newLeft;
-      nextWidths[dividerIndex + 1] = pairTotal - newLeft;
-      const nextStarts = this.computeLaneStartsFromWidths(nextWidths);
-      const trackedById = new Map(trackedNodes.map((item) => [item.nodeId, item]));
-      this.laneWidths = nextWidths;
-      this.nodes = this.nodes.map((node) => {
-        const tracked = trackedById.get(node.id);
-        if (!tracked) return node;
-        const laneStart = nextStarts[tracked.laneIndex] ?? nextStarts[0] ?? this.lanePaddingX;
-        const laneWidth = nextWidths[tracked.laneIndex] ?? nextWidths[0] ?? this.getDefaultLaneWidth();
-        return { ...node, x: laneStart + tracked.ratio * laneWidth };
-      });
-      return;
-    }
-
-    if (this.dragState.kind === 'connecting') {
-      const { sourceNodeId, portType } = this.dragState;
-
-      this.dragState = {
-        kind: 'connecting',
-        sourceNodeId,
-        portType,
-        currentX: svgPoint.x,
-        currentY: svgPoint.y,
-      };
-
-      const layout = this.buildDerivedLayout();
-      let hoveredId: string | null = null;
-
-      const hoveredReal = this.nodes.find((n) => {
-        if (n.id === sourceNodeId) return false;
-        const h = this.getNodeDynamicHeight(n);
-        let halfW = 60;
-        if (n.type === 'action') {
-          const lines = this.wrapText((n as ActionCanvasNode).text || '', 22);
-          halfW = this.getActionDimensions(lines).width / 2;
-        } else if (n.type === 'decision') {
-          const lines = this.wrapText((n as DecisionCanvasNode).condition || '', 18);
-          halfW = this.getDecisionDimensions(lines).halfW;
-        } else if (n.type === 'merge') {
-          halfW = this.mergeSize / 2;
-        }
-        return (
-          svgPoint.x >= n.x - halfW - 12 &&
-          svgPoint.x <= n.x + halfW + 12 &&
-          svgPoint.y >= n.y - h / 2 - 12 &&
-          svgPoint.y <= n.y + h / 2 + 12
+      if (this.dragState.kind === 'divider') {
+        const { dividerIndex, startX, initialWidths, trackedNodes } = this.dragState;
+        const deltaX = svgPoint.x - startX;
+        const leftInitial = initialWidths[dividerIndex];
+        const rightInitial = initialWidths[dividerIndex + 1];
+        const pairTotal = leftInitial + rightInitial;
+        const newLeft = Math.max(
+          this.minLaneWidth,
+          Math.min(pairTotal - this.minLaneWidth, leftInitial + deltaX)
         );
-      });
+        const nextWidths = [...initialWidths];
+        nextWidths[dividerIndex] = newLeft;
+        nextWidths[dividerIndex + 1] = pairTotal - newLeft;
+        const nextStarts = this.computeLaneStartsFromWidths(nextWidths);
+        const trackedById = new Map(trackedNodes.map((item) => [item.nodeId, item]));
+        this.laneWidths = nextWidths;
+        this.nodes = this.nodes.map((node) => {
+          const tracked = trackedById.get(node.id);
+          if (!tracked) return node;
+          const laneStart =
+            nextStarts[tracked.laneIndex] ?? nextStarts[0] ?? this.lanePaddingX;
+          const laneWidth =
+            nextWidths[tracked.laneIndex] ?? nextWidths[0] ?? this.getDefaultLaneWidth();
+          return { ...node, x: laneStart + tracked.ratio * laneWidth };
+        });
+        return;
+      }
 
-      if (hoveredReal) {
-        hoveredId = hoveredReal.id;
-      } else {
-        if (layout.startNode && sourceNodeId !== 'virtual-start' && Math.abs(svgPoint.x - layout.startNode.x) < 20 && Math.abs(svgPoint.y - layout.startNode.y) < 20) {
-          hoveredId = 'virtual-start';
-        } else if (layout.finalNode && sourceNodeId !== 'virtual-final' && Math.abs(svgPoint.x - layout.finalNode.x) < 20 && Math.abs(svgPoint.y - layout.finalNode.y) < 20) {
-          hoveredId = 'virtual-final';
+      if (this.dragState.kind === 'connecting') {
+        const { sourceNodeId, portType } = this.dragState;
+
+        this.dragState = {
+          kind: 'connecting',
+          sourceNodeId,
+          portType,
+          currentX: svgPoint.x,
+          currentY: svgPoint.y,
+        };
+
+        const layout = this.buildDerivedLayout();
+        let hoveredId: string | null = null;
+
+        const hoveredReal = this.nodes.find((n) => {
+          if (n.id === sourceNodeId) return false;
+          const h = this.getNodeDynamicHeight(n);
+          let halfW = 60;
+          if (n.type === 'action') {
+            const lines = this.wrapText((n as ActionCanvasNode).text || '', 22);
+            halfW = this.getActionDimensions(lines).width / 2;
+          } else if (n.type === 'decision') {
+            const lines = this.wrapText((n as DecisionCanvasNode).condition || '', 18);
+            halfW = this.getDecisionDimensions(lines).halfW;
+          } else if (n.type === 'merge') {
+            halfW = this.mergeSize / 2;
+          }
+          // Fix #5: consistent padding of 16px on all sides for reliable hit detection
+          const pad = 16;
+          return (
+            svgPoint.x >= n.x - halfW - pad &&
+            svgPoint.x <= n.x + halfW + pad &&
+            svgPoint.y >= n.y - h / 2 - pad &&
+            svgPoint.y <= n.y + h / 2 + pad
+          );
+        });
+
+        if (hoveredReal) {
+          hoveredId = hoveredReal.id;
         } else {
-          const hoveredMerge = layout.mergeNodes.find(m => Math.abs(svgPoint.x - m.x) < 20 && Math.abs(svgPoint.y - m.y) < 20);
-          if (hoveredMerge && sourceNodeId !== `virtual-merge-${hoveredMerge.decisionId}`) {
-            hoveredId = `virtual-merge-${hoveredMerge.decisionId}`;
+          // Fix #5: larger hit radius for virtual nodes (28px instead of 20px)
+          const virtualHitRadius = 28;
+          if (
+            layout.startNode &&
+            sourceNodeId !== 'virtual-start' &&
+            Math.abs(svgPoint.x - layout.startNode.x) < virtualHitRadius &&
+            Math.abs(svgPoint.y - layout.startNode.y) < virtualHitRadius
+          ) {
+            hoveredId = 'virtual-start';
+          } else if (
+            layout.finalNode &&
+            sourceNodeId !== 'virtual-final' &&
+            Math.abs(svgPoint.x - layout.finalNode.x) < virtualHitRadius &&
+            Math.abs(svgPoint.y - layout.finalNode.y) < virtualHitRadius
+          ) {
+            hoveredId = 'virtual-final';
+          } else {
+            const hoveredMerge = layout.mergeNodes.find(
+              (m) =>
+                Math.abs(svgPoint.x - m.x) < virtualHitRadius &&
+                Math.abs(svgPoint.y - m.y) < virtualHitRadius
+            );
+            if (
+              hoveredMerge &&
+              sourceNodeId !== `virtual-merge-${hoveredMerge.decisionId}`
+            ) {
+              hoveredId = `virtual-merge-${hoveredMerge.decisionId}`;
+            }
           }
         }
-      }
 
-      this.hoveredNodeId = hoveredId;
-      return;
-    }
-
-    if (this.dragState.kind === 'virtual') {
-      const deltaX = svgPoint.x - this.dragState.baseX;
-      const deltaY = svgPoint.y - this.dragState.baseY;
-      const newOffsetX = this.dragState.offsetX + deltaX;
-      const newOffsetY = this.dragState.offsetY + deltaY;
-      if (this.dragState.virtualKind === 'start') {
-        this.startOffset = { x: newOffsetX, y: newOffsetY };
+        this.hoveredNodeId = hoveredId;
         return;
       }
-      if (this.dragState.virtualKind === 'final') {
-        this.finalOffset = { x: newOffsetX, y: newOffsetY };
-        return;
+
+      if (this.dragState.kind === 'virtual') {
+        const deltaX = svgPoint.x - this.dragState.baseX;
+        const deltaY = svgPoint.y - this.dragState.baseY;
+        const newOffsetX = this.dragState.offsetX + deltaX;
+        const newOffsetY = this.dragState.offsetY + deltaY;
+        if (this.dragState.virtualKind === 'start') {
+          this.startOffset = { x: newOffsetX, y: newOffsetY };
+          return;
+        }
+        if (this.dragState.virtualKind === 'final') {
+          this.finalOffset = { x: newOffsetX, y: newOffsetY };
+          return;
+        }
+        this.mergeOffsets = {
+          ...this.mergeOffsets,
+          [this.dragState.virtualId]: { x: newOffsetX, y: newOffsetY },
+        };
       }
-      this.mergeOffsets = {
-        ...this.mergeOffsets,
-        [this.dragState.virtualId]: { x: newOffsetX, y: newOffsetY },
-      };
     }
-  }
 
   private onCanvasPointerUp(): void {
     if (!this.dragState) return;
@@ -2379,21 +2557,24 @@ export class AdCanvasEditor extends LitElement {
   }
 
   private getNewNodePosition(): { x: number; y: number } {
-    const container = this.renderRoot.querySelector('.canvas-container') as HTMLElement | null;
-    let y = this.laneHeaderHeight + 200;
-    if (container) {
-      const visibleCenterY = container.scrollTop + container.clientHeight / 2;
-      y = Math.max(this.laneHeaderHeight + 60, visibleCenterY);
+      const container = this.renderRoot.querySelector(
+        '.canvas-container'
+      ) as HTMLElement | null;
+      let y = this.laneHeaderHeight + 200;
+      if (container) {
+        const visibleCenterY = container.scrollTop + container.clientHeight / 2;
+        y = Math.max(this.laneHeaderHeight + 60, visibleCenterY);
+      }
+
+      // Fix #4: place inside the center of the last lane, not outside canvas
+      const count = Math.max(this.actors.length, 1);
+      const widths = this.getLaneWidths(count);
+      const starts = this.computeLaneStartsFromWidths(widths);
+      const lastIndex = widths.length - 1;
+      const x = starts[lastIndex] + widths[lastIndex] / 2;
+
+      return { x, y };
     }
-
-    const count = Math.max(this.actors.length, 1);
-    const widths = this.getLaneWidths(count);
-    const starts = this.computeLaneStartsFromWidths(widths);
-    const lastIndex = widths.length - 1;
-    const x = starts[lastIndex] + widths[lastIndex] + 50;
-
-    return { x, y };
-  }
 
   private generateNodeId(): string {
     return `node-${Math.random().toString(36).slice(2, 9)}`;
