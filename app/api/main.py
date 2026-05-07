@@ -1,4 +1,4 @@
-# app/main.py
+# app/api/main.py
 """
 FastAPI application entry point.
 

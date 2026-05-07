@@ -1,4 +1,4 @@
-// frontend/vite.config.ts
+// app/frontend/vite.config.ts
 import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {

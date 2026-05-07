@@ -1,4 +1,4 @@
-// src/components/ad-login-view.ts
+// app/frontend/src/ad-login-view.ts
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 

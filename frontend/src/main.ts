@@ -1,3 +1,4 @@
+// app/frontend/src/main.ts
 import './ad-app';
 
 const root = document.querySelector('#app');

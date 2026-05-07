@@ -1,3 +1,4 @@
+# app/core/config.py
 """
 Application configuration loaded from environment variables (.env).
 """

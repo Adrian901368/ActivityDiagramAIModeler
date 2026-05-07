@@ -1,4 +1,4 @@
-// src/components/ad-catalog-view.ts
+// app/frontend/src/ad-catalog-view.ts
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
