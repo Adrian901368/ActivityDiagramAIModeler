@@ -1,0 +1,298 @@
+kategoria K1
+
+Názov procesu 1:
+Exam registration for an available exam date
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student and AIS. The student logs into AIS and opens the exam registration module. The student selects the course for which they want to register. AIS displays the available exam dates together with date, time, location, and remaining capacity. The student selects one exam date and submits the registration request. AIS checks whether the selected exam date still has free capacity. If the capacity is available, AIS registers the student for the exam and shows a confirmation of successful registration. If the capacity is full, AIS rejects the registration and shows an error message. After the registration result is displayed, the process moves to the common final state Registration request closed.
+
+Názov procesu 2:
+Exam registration with enrollment and capacity check
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, and Study Office. The student logs into AIS and opens the exam registration module. The student selects the course for which they want to register for an exam. AIS displays the available exam dates with date, time, location, and remaining capacity. The student selects one date and submits the registration request. AIS first checks whether the student is enrolled in the selected course. If the student is not enrolled in the course, AIS rejects the request, shows an error message, and instructs the student to contact the Study Office. The Study Office verifies the enrollment status and informs the student about the result. If the student is enrolled in the course, AIS checks whether the selected exam date still has free capacity. If the capacity is available, AIS registers the student for the exam and shows a success confirmation. If the capacity is full, AIS rejects the request and shows an error message about full capacity. After the final information is shown to the student, the process moves to the common final state Registration request closed.
+
+Názov procesu 3:
+Exam date registration with alternative rejection paths
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, and Study Office. The student logs into AIS, opens the exam registration module, and chooses a course. AIS shows the list of exam dates for the selected course. The student selects one exam date and submits the registration request. AIS checks whether the student is enrolled in the course. If the student is not enrolled, AIS rejects the request, shows the reason, and the Study Office provides guidance to the student. If the student is enrolled, AIS checks whether the selected exam date has free capacity. If the date is full, AIS rejects the request, shows a capacity error, and the Study Office recommends that the student choose another date in the future. If the date has free capacity, AIS registers the student and shows a confirmation message. After the final outcome is communicated to the student, the process moves to the common final state Registration request closed.
+
+
+kategoria K2
+
+Názov procesu 4:
+Issuing a confirmation of enrollment
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, Study Office Staff, and Student Information System. The student requests a confirmation of enrollment. The request can be submitted electronically through the student information system or in person at the Study Office. In the electronic path, the student fills in and submits an online request form. In the in-person path, Study Office Staff receives the request and enters it into the system on behalf of the student. The Student Information System checks whether the student currently has active enrollment status in a degree program. If the status is active, the system generates a confirmation of enrollment as a PDF document. Study Office Staff then decides whether to print the confirmation or send it to the student by email. The selected delivery method is completed and the student receives the document. If the enrollment status is not active, the system rejects the request and shows a message that the confirmation cannot be issued. After the final result is communicated, the process moves to the common final state Certificate request closed.
+
+
+Názov procesu 5:
+Issuing a study certificate with status verification in the registry system
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, Study Office Staff, Student Information System, and Registry System. The student requests a confirmation of enrollment. The request is submitted either electronically through the student information system or in person at the Study Office. If the request is electronic, the student fills in the online form and submits it. If the request is in person, Study Office Staff receives the request and records it in the Student Information System. The Student Information System sends a status verification request to the Registry System. The Registry System checks whether the student has active enrollment status. If the student is active, the Registry System returns a positive result and the Student Information System generates a PDF confirmation. Study Office Staff then completes document delivery by printing the confirmation or by sending it to the student by email. If the student is not active, the Registry System returns a negative result, the Student Information System rejects the request, and Study Office Staff informs the student that the confirmation cannot be issued. After the final notification or delivery is completed, the process moves to the common final state Certificate request closed.
+
+
+Názov procesu 6:
+Processing a request for confirmation of enrollment by electronic or in-person submission
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, Study Office Staff, AIS, and Registry System. The student requests a confirmation of enrollment. The request is submitted either electronically in AIS or in person at the Study Office. In the electronic path, the student opens the request form in AIS, fills it in, and submits it. In the in-person path, Study Office Staff receives the request from the student and enters it into AIS. AIS sends a query to the Registry System to verify whether the student currently has active enrollment status. If the status is active, AIS generates a PDF confirmation of enrollment. Study Office Staff then completes delivery by printing the confirmation or by sending it by email to the student. If the status is not active, AIS rejects the request and displays a message that the confirmation cannot be issued because the student is not currently active. After the final result of the request is delivered or communicated, the process moves to the common final state Certificate request closed.
+
+
+kategoria K3 
+
+Názov procesu 7:
+Online semester course registration with prerequisite, timetable, and credit checks
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, Curriculum Records System, Timetable Service, and Study Office. The student logs into AIS. The student opens the online course registration module for the upcoming semester. AIS loads the student degree plan. AIS loads the current academic record. AIS displays the list of available courses for the semester. The student browses the available courses. The student selects a course to add. AIS sends a prerequisite check request to the Curriculum Records System. The Curriculum Records System verifies whether all required prerequisites are satisfied. If the prerequisites are not satisfied, AIS rejects the selected course, shows a prerequisite error message, and returns the student to course selection. If the prerequisites are satisfied, AIS sends a timetable conflict check request to the Timetable Service. The Timetable Service verifies whether the selected course conflicts with already selected or already registered courses. If a timetable conflict exists, AIS rejects the selected course, shows a timetable conflict message, and returns the student to course selection. If no timetable conflict exists, AIS checks whether adding the course would exceed the semester credit limit. If the credit limit would be exceeded, AIS rejects the selected course, shows a credit limit error message, and the student may request assistance from the Study Office. The Study Office reviews the problem and may advise the student to choose a different course. If all checks pass, AIS adds the course to the student registration. The student may continue selecting additional courses. When the student finishes the selection, the student confirms the semester registration. AIS saves the final set of registered courses, shows a confirmation summary, and moves the process to the common final state Semester registration closed.
+
+
+
+Názov procesu 8:
+Online course registration with repeated selection, section adjustment, and study office intervention
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, Curriculum Records System, Timetable Service, and Study Office. The student logs into AIS. The student opens the semester registration module. AIS loads the student degree plan. AIS loads the list of already completed courses. AIS loads the list of currently enrolled courses. AIS displays the available courses and sections for the semester. The student selects a course or section. AIS sends a prerequisite check request to the Curriculum Records System. The Curriculum Records System checks whether all prerequisites are satisfied. If the prerequisites are not satisfied, AIS rejects the selected course, displays the reason, and returns the flow to course selection. If the prerequisites are satisfied, AIS sends a timetable validation request to the Timetable Service. The Timetable Service checks whether the selected section conflicts with the current timetable. If a timetable conflict is found, AIS rejects the selected section, shows a timetable conflict message, and returns the flow to course selection. If no timetable conflict is found, AIS checks whether the new selection would exceed the allowed semester credit load. If the credit load would be exceeded, AIS rejects the selection and shows a credit limit message. The student decides whether to modify the registration cart independently. If the student modifies the cart independently, the flow returns to course selection. If the student cannot resolve the problem independently, the student contacts the Study Office. The Study Office reviews the registration situation and records manual guidance. After the guidance is recorded, the flow returns to course selection. If all checks pass, AIS adds the selected course to the registration cart. The student decides whether to add another course. If the student wants to add another course, the flow returns to course selection. If the student does not want to add another course, the student confirms the final registration. AIS saves the registered courses, generates a confirmation summary, and moves the process to the common final state Semester registration closed.
+
+
+Názov procesu 9:
+Semester course registration with validation of prerequisites, timetable, and credits
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, Curriculum Records System, and Timetable Service. The student logs into AIS. The student opens the online semester registration module. AIS loads the student degree plan and current academic record. AIS displays the available courses for the semester. The student selects a course to register. AIS sends a prerequisite validation request to the Curriculum Records System. The Curriculum Records System checks whether the student satisfies the prerequisites. If the prerequisites are not satisfied, AIS rejects the selected course, shows an error message, and returns the student to course selection. If the prerequisites are satisfied, AIS sends a timetable validation request to the Timetable Service. The Timetable Service checks whether the selected course conflicts with the current timetable. If a timetable conflict exists, AIS rejects the selected course, shows a conflict message, and returns the student to course selection. If no timetable conflict exists, AIS checks whether adding the course would exceed the semester credit limit. If the credit limit would be exceeded, AIS rejects the selected course, shows a credit limit error message, and returns the student to course selection. If all validations pass, AIS adds the course to the registration. The student may select another course and repeat the same validation cycle. When the student finishes the selection, the student confirms the registration. AIS saves the final registered courses, displays a confirmation summary, and moves the process to the common final state Semester registration closed.
+
+
+kategoria K4: 
+
+
+Názov procesu 10:
+Approval of an individual study plan with advisor review, guarantor decision, and record registration
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, Academic Advisor, Program Guarantor, Study Office, and Curriculum Registry. The student logs into AIS. The student opens the individual study plan request module. AIS displays the request form. The student enters the proposed set of courses. The student enters the planned credits per semester. The student enters a short justification. The student submits the request. AIS validates the completeness of the request. If the request is incomplete, AIS shows an error message and returns the request to the student for correction. If the request is complete, AIS forwards the request to the Academic Advisor. The Academic Advisor reviews the proposed plan. The Academic Advisor evaluates whether the plan is realistic and academically acceptable. The Academic Advisor adds comments or suggested changes. The Academic Advisor decides whether to recommend the request. If the Academic Advisor does not recommend the request, AIS notifies the student and returns the request for revision. The student reviews the comments, modifies the plan, and resubmits the request. If the Academic Advisor recommends the request, AIS forwards the request to the Program Guarantor. The Program Guarantor reviews the request and the advisor recommendation. The Program Guarantor decides whether to approve the individual study plan. If the Program Guarantor rejects the request, AIS notifies the student. The student decides whether to create a new request. If the student creates a new request, the flow returns to the request form. If the student does not create a new request, the process moves to the common final state Request closed without approval. If the Program Guarantor approves the request, AIS forwards the decision to the Study Office. The Study Office registers the approved plan in the Curriculum Registry. The Curriculum Registry updates the student study record. AIS sends a confirmation to the student and moves the process to the common final state Individual study plan approved and registered.
+
+
+Názov procesu 11:
+Individual study plan request with advisor recommendation and study office registration
+
+Doména:
+University study administration
+
+Opis procesu:
+Actors are Student, AIS, Academic Advisor, Program Guarantor, and Study Office. The student logs into AIS. The student opens the individual study plan request module. AIS displays the electronic request form. The student enters the proposed courses, planned semester credits, and justification. The student submits the request. AIS checks whether all mandatory fields are filled in. If the request is incomplete, AIS shows an error message and returns the form to the student. If the request is complete, AIS forwards the request to the Academic Advisor. The Academic Advisor reviews the request and evaluates the academic suitability of the plan. The Academic Advisor writes comments and decides whether to recommend the request. If the Academic Advisor does not recommend the request, AIS notifies the student. The student reviews the comments, modifies the request, and resubmits it. If the Academic Advisor recommends the request, AIS forwards the request to the Program Guarantor. The Program Guarantor reviews the request and decides whether to approve it. If the Program Guarantor rejects the request, AIS informs the student and moves the process to the common final state Request rejected. If the Program Guarantor approves the request, AIS forwards the decision to the Study Office. The Study Office records the approved individual study plan in the information system. AIS updates the student study record, sends confirmation to the student, and moves the process to the common final state Individual study plan approved and registered.
+
+
+Názov procesu 12:
+Approval workflow for an individual study plan with revision, rejection, and formal registration
+
+Doména:
+University study administration
+
+Opis procesu :
+Actors are Student, AIS, Academic Advisor, Program Guarantor, Study Office, and Notification Service. The student logs into AIS. The student opens the request form for an individual study plan. AIS displays the form for proposed courses, planned credits, and justification. The student fills in the request. The student submits the request. AIS validates the formal completeness of the submission. If the submission is incomplete, AIS shows an error message and returns the form to the student. If the submission is complete, AIS forwards the request to the Academic Advisor. The Academic Advisor reviews the request and checks whether the plan is realistic and academically acceptable. The Academic Advisor adds comments or change suggestions. The Academic Advisor decides whether to recommend the request. If the Academic Advisor does not recommend the request, AIS sends the advisor feedback to the Notification Service. The Notification Service notifies the student about required revisions. The student updates the request and submits a revised version. If the Academic Advisor recommends the request, AIS forwards the request to the Program Guarantor. The Program Guarantor reviews the request and the advisor recommendation. The Program Guarantor decides whether to approve the request. If the request is rejected, AIS sends the decision to the Notification Service. The Notification Service informs the student about the rejection and moves the process to the common final state Request rejected. If the request is approved, AIS forwards the decision to the Study Office. The Study Office records the approved individual study plan in the information system. AIS updates the student study record. The Notification Service sends approval confirmation to the student and moves the process to the common final state Individual study plan approved and registered.
+
+
+kategoria K5: 
+
+
+Názov procesu 13:
+Onboarding of a newly admitted PhD student with enrollment, HR processing, IT activation, and supervisor assignment
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, IT Department, Department Administration, Supervisor, University Systems.
+
+The process starts when PhD Student receives the admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office and requests onboarding. Study Office opens the onboarding case in University Systems. Study Office checks the required admission documents.
+
+If any required document is missing, Study Office requests the missing documents from PhD Student. PhD Student submits the missing documents. Study Office checks whether the documents were submitted before the deadline. If the deadline is missed, Study Office cancels the onboarding case. University Systems records the cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are available, Study Office performs formal enrollment. University Systems creates the doctoral student record. University Systems confirms active enrollment.
+
+After formal enrollment, two branches run in parallel. In the first branch, HR Department opens an employment case. HR Department verifies personal data. HR Department verifies legal data. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is not signed, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department creates the employment relationship in the HR system.
+
+In the second branch, IT Department receives a request for account creation. IT Department checks whether the active person record is available in University Systems. If the person record is missing, IT Department asks Study Office to complete the missing data. Study Office updates the person record in University Systems. IT Department creates the university account. IT Department creates the university email account. IT Department grants basic system access. IT Department activates the account. IT Department confirms working access.
+
+After both branches are completed, Department Administration assigns the workplace. Department Administration assigns Supervisor if not already assigned. Supervisor accepts the supervision role. Department Administration schedules an introductory meeting. Supervisor holds the introductory meeting with PhD Student. Department Administration proposes the planned start date. PhD Student decides whether the start date is acceptable. If the start date is delayed, Department Administration suspends the remaining onboarding steps until the arrival date. Department Administration resumes onboarding after the arrival date.
+
+Department Administration registers the workplace assignment in University Systems. Department Administration registers the supervisor assignment in University Systems. University Systems sends final onboarding confirmation. The process ends.
+
+
+
+
+Názov procesu 14:
+Detailed PhD student onboarding with document validation, payroll registration, IT setup, and delayed start handling
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, Payroll Office, IT Department, Department Administration, Supervisor, University Systems.
+
+The process starts when PhD Student receives the official admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office to start onboarding. Study Office opens the doctoral onboarding case in University Systems. Study Office checks the signed admission decision. Study Office checks identification documents. Study Office checks degree certificates.
+
+If any required document is missing, Study Office requests the missing documents from PhD Student. PhD Student submits the missing documents. Study Office checks whether the documents were submitted before the allowed deadline. If the documents are not submitted in time, Study Office closes the onboarding case. University Systems records onboarding cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are complete, Study Office performs formal enrollment. University Systems creates the doctoral student record. University Systems marks PhD Student as actively enrolled.
+
+After formal enrollment, two branches run in parallel. In the first branch, HR Department opens an employment file. HR Department verifies legal conditions. HR Department verifies employment conditions. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is rejected or not signed, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department forwards the case to Payroll Office. Payroll Office registers payroll data. Payroll Office confirms salary setup. HR Department activates the employment relationship in University Systems.
+
+In the second branch, IT Department receives a request for digital access. IT Department checks whether student identity data are available in University Systems. IT Department checks whether active enrollment is available in University Systems. If required information is missing, IT Department requests data completion from Study Office. Study Office completes the missing identity data. IT Department creates the user account. IT Department creates the university email address. IT Department grants access to AIS. IT Department grants access to LMS. IT Department grants access to repositories. IT Department grants access to VPN. IT Department activates the account. IT Department confirms basic access.
+
+After both branches are completed, Department Administration assigns the workplace. Department Administration assigns Supervisor if not already assigned. Supervisor reviews the assignment. Department Administration schedules an introductory meeting. Supervisor attends the introductory meeting. PhD Student attends the introductory meeting. Department Administration proposes the planned start date. PhD Student decides whether the start date must be postponed. If the start date is postponed, Department Administration suspends nonessential onboarding actions until the arrival date. Department Administration reactivates the onboarding case after the arrival date.
+
+Department Administration registers the workplace assignment in University Systems. Department Administration registers the supervisor assignment in University Systems. University Systems records the final onboarding result. The process ends.
+
+
+
+
+Názov procesu 15:
+Comprehensive onboarding of a PhD student with enrollment, employment, IT and access provisioning, workplace assignment, and postponed arrival branch
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, IT Department, Access Management, Department Administration, Supervisor, University Systems.
+
+The process starts when PhD Student receives the official admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office to initiate onboarding. Study Office creates the onboarding case in University Systems. Study Office checks the signed admission decision. Study Office checks identification documents. Study Office checks degree certificates.
+
+If any required document is missing, Study Office requests document completion from PhD Student. PhD Student provides the missing documents. Study Office checks whether the missing documents were delivered before the deadline. If the deadline is missed, Study Office cancels the onboarding case. University Systems records cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are complete, Study Office performs formal enrollment in the PhD program. University Systems creates the active doctoral student record.
+
+After formal enrollment, two branches run in parallel. In the first branch, HR Department opens an employment case. HR Department verifies personal data. HR Department verifies legal conditions. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is refused or remains unsigned, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department creates the employment relationship in University Systems.
+
+In the second branch, IT Department receives a request for digital access. IT Department checks whether the active person record exists in University Systems. If the person record is missing, IT Department asks Study Office to complete the missing person data. Study Office updates the person record in University Systems. IT Department creates the university account. IT Department creates the email account. IT Department grants access to AIS. IT Department grants access to LMS. IT Department grants access to repositories. IT Department grants access to VPN. IT Department forwards the case to Access Management. Access Management creates building access rights. Access Management creates workplace access rights. Access Management confirms physical access. IT Department confirms that the digital account is active and usable.
+
+After both branches are completed, Department Administration assigns the workplace. Department Administration assigns Supervisor if not already assigned. Supervisor accepts the supervision role. Department Administration schedules an introductory meeting. Supervisor attends the introductory meeting. PhD Student attends the introductory meeting. Supervisor introduces the research group. Supervisor explains working rules. Department Administration proposes the planned start date. PhD Student decides whether the arrival will be delayed. If the arrival is delayed, Department Administration pauses selected onboarding tasks until the actual start date. Department Administration resumes onboarding after the actual start date.
+
+Department Administration records the workplace assignment in University Systems. Department Administration records the supervisor assignment in University Systems. University Systems records completion status. The process ends.
+
+
+
+kategoria K6
+
+Názov procesu 16:
+Comprehensive PhD Student Onboarding with Enrollment, Employment, Payroll, Digital Access, and Physical Access
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, Payroll Office, IT Department, Access Management, Department Administration, Supervisor, University Systems.
+
+The process starts when PhD Student receives the official admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office to initiate onboarding. Study Office opens the onboarding case in University Systems. Study Office checks the signed admission decision. Study Office checks identification documents. Study Office checks degree certificates.
+
+If any required document is missing, Study Office requests the missing documents from PhD Student. PhD Student submits the missing documents. Study Office checks whether the missing documents were submitted before the deadline. If the deadline is missed, Study Office closes the onboarding case. University Systems records onboarding cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are complete, Study Office performs formal enrollment. University Systems creates the active doctoral student record. University Systems assigns the student identifier. University Systems confirms active enrollment.
+
+Department Administration prepares the workplace assignment. Department Administration prepares the supervisor assignment. Supervisor reviews the onboarding information.
+
+After formal enrollment, three parallel branches start.
+
+In the first branch, HR Department opens an employment case. HR Department verifies personal data. HR Department verifies legal conditions. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is refused or remains unsigned, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department forwards the case to Payroll Office. Payroll Office registers payroll data. Payroll Office confirms salary setup. HR Department activates the employment relationship in University Systems.
+
+In the second branch, IT Department receives a request for digital access. IT Department checks whether the active person record exists in University Systems. If the person record is missing, IT Department requests data completion from Study Office. Study Office updates the person record in University Systems. IT Department creates the university account. IT Department creates the email account. IT Department grants access to AIS. IT Department grants access to LMS. IT Department grants access to repositories. IT Department grants access to VPN. IT Department confirms digital access.
+
+In the third branch, Access Management receives the access provisioning request. Access Management creates building access rights. Access Management creates workplace access rights. Access Management issues the access card. Access Management confirms physical access.
+
+After all branches are completed, Department Administration assigns the workplace. Department Administration assigns Supervisor. Supervisor accepts the supervision role. Department Administration schedules the introductory meeting. Supervisor attends the introductory meeting. PhD Student attends the introductory meeting. Supervisor introduces the research group. Supervisor explains working rules. Department Administration proposes the planned start date. PhD Student decides whether the start date is delayed. If the start date is delayed, Department Administration pauses the remaining onboarding tasks until the actual start date. Department Administration resumes onboarding after the actual start date.
+
+Department Administration records the workplace assignment in University Systems. Department Administration records the supervisor assignment in University Systems. University Systems records onboarding completion. University Systems sends final onboarding confirmation. The process ends.
+
+
+Názov procesu 17:
+Advanced PhD Student Onboarding with Research Registration, Employment, IT Access, and Supervisor Approval
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, IT Department, Access Management, Department Administration, Supervisor, Research Office, University Systems.
+
+The process starts when PhD Student receives the official admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office to start onboarding. Study Office opens the onboarding case in University Systems. Study Office checks the signed admission decision. Study Office checks identification documents. Study Office checks degree certificates.
+
+If any required document is missing, Study Office requests the missing documents from PhD Student. PhD Student submits the missing documents. Study Office checks whether the missing documents were submitted before the deadline. If the deadline is missed, Study Office closes the onboarding case. University Systems records onboarding cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are complete, Study Office performs formal enrollment. University Systems creates the active doctoral student record. University Systems assigns the student identifier. University Systems confirms active enrollment.
+
+Department Administration assigns provisional workplace information. Department Administration assigns provisional Supervisor. Supervisor reviews the initial doctoral profile.
+
+After formal enrollment, three parallel branches start.
+
+In the first branch, HR Department opens an employment case. HR Department verifies personal data. HR Department verifies legal conditions. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is not signed, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department activates the employment relationship in University Systems.
+
+In the second branch, IT Department receives a request for digital access. IT Department checks whether the active person record exists in University Systems. If the person record is missing, IT Department requests data completion from Study Office. Study Office updates the person record in University Systems. IT Department creates the university account. IT Department creates the email account. IT Department grants access to AIS. IT Department grants access to LMS. IT Department grants access to repositories. IT Department grants access to VPN. IT Department forwards the access request to Access Management. Access Management creates building access rights. Access Management creates workplace access rights. Access Management confirms physical access. IT Department confirms digital access.
+
+In the third branch, Research Office opens the research onboarding case. Research Office requests a provisional research topic from PhD Student. PhD Student submits the provisional research topic. Supervisor reviews the provisional research topic. Research Office checks whether the topic proposal is complete. If the topic proposal is incomplete, Research Office requests a revised topic proposal. PhD Student submits the revised topic proposal. Supervisor reviews the revised topic proposal. Research Office registers the provisional research topic. Research Office enrolls PhD Student in doctoral methodology training. Research Office confirms research onboarding readiness.
+
+After all branches are completed, Department Administration assigns the final workplace. Department Administration assigns the final Supervisor. Supervisor accepts the supervision role. Department Administration schedules the introductory meeting. Supervisor attends the introductory meeting. PhD Student attends the introductory meeting. Supervisor explains research expectations. Supervisor explains communication rules. Department Administration proposes the planned start date. PhD Student decides whether the start date is delayed. If the start date is delayed, Department Administration pauses the remaining onboarding tasks until the actual start date. Department Administration resumes onboarding after the actual start date.
+
+Department Administration records the workplace assignment in University Systems. Department Administration records the supervisor assignment in University Systems. Research Office records research onboarding completion. University Systems records final onboarding completion. University Systems sends final onboarding confirmation. The process ends.
+
+
+Názov procesu 18:
+Integrated PhD Student Onboarding with Enrollment, Employment, IT Provisioning, Access Rights, and Delayed Arrival Handling
+
+Doména:
+University doctoral study administration
+
+Opis procesu:
+Actors: PhD Student, Study Office, HR Department, IT Department, Access Management, Department Administration, Supervisor, University Systems.
+
+The process starts when PhD Student receives the official admission decision. PhD Student signs the admission decision. PhD Student contacts Study Office to initiate onboarding. Study Office opens the onboarding case in University Systems. Study Office checks the signed admission decision. Study Office checks identification documents. Study Office checks degree certificates.
+
+If any required document is missing, Study Office requests document completion from PhD Student. PhD Student provides the missing documents. Study Office checks whether the missing documents were delivered before the deadline. If the deadline is missed, Study Office cancels the onboarding case. University Systems records cancellation. Study Office informs PhD Student. The process ends.
+
+If all required documents are complete, Study Office performs formal enrollment. University Systems creates the active doctoral student record. University Systems assigns the student identifier. University Systems confirms active enrollment.
+
+Department Administration prepares the workplace assignment. Department Administration prepares the supervisor assignment.
+
+After formal enrollment, two parallel branches start.
+
+In the first branch, HR Department opens an employment case. HR Department verifies personal data. HR Department verifies legal conditions. HR Department prepares the employment contract. HR Department sends the contract to PhD Student. PhD Student reviews the contract. PhD Student decides whether to sign the contract. If the contract is not signed, HR Department records employment failure. HR Department informs Study Office. HR Department informs Supervisor. The process ends. If the contract is signed, HR Department creates the employment relationship in University Systems.
+
+In the second branch, IT Department receives a request for digital access. IT Department checks whether the active person record exists in University Systems. If the person record is missing, IT Department requests data completion from Study Office. Study Office updates the person record in University Systems. IT Department creates the university account. IT Department creates the email account. IT Department grants access to AIS. IT Department grants access to LMS. IT Department grants access to repositories. IT Department grants access to VPN. IT Department forwards the request to Access Management. Access Management creates building access rights. Access Management creates workplace access rights. Access Management issues the access card. Access Management confirms physical access. IT Department confirms digital access.
+
+After both branches are completed, Department Administration assigns the workplace. Department Administration assigns Supervisor. Supervisor accepts the supervision role. Department Administration schedules the introductory meeting. Supervisor attends the introductory meeting. PhD Student attends the introductory meeting. Supervisor introduces the research group. Supervisor explains working rules. Department Administration proposes the planned start date. PhD Student decides whether the arrival is delayed. If the arrival is delayed, Department Administration pauses selected onboarding tasks until the actual arrival date. Department Administration resumes onboarding after the actual arrival date.
+
+Department Administration records the workplace assignment in University Systems. Department Administration records the supervisor assignment in University Systems. University Systems records completion status. University Systems sends final onboarding confirmation. The process ends.
+
+
